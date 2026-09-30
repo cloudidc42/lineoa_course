@@ -1,2226 +1,1929 @@
-# Part 85: Custom AI Models สำหรับ LINE Bots
+# ตอนที่ 85: Custom AI Models สำหรับ LINE Bots
 
 ## บทนำ
 
-การสร้าง Custom AI Model สำหรับ LINE Bot ช่วยให้ chatbot ตอบสนองได้ตรงกับ domain เฉพาะ ภาษาไทย และ context ของธุรกิจ บทนี้จะครอบคลุมการ Fine-tune LLMs, RAG Systems, และ Model Serving สำหรับ Production
+การสร้าง AI Model ที่ปรับแต่งเฉพาะสำหรับธุรกิจของคุณช่วยให้ LINE Bot ฉลาดขึ้น เข้าใจบริบทของธุรกิจได้ดีขึ้น และให้คำตอบที่ตรงกับความต้องการของลูกค้ามากขึ้น
 
----
-
-## 1. Overview ของ Custom AI Approach
+## สถาปัตยกรรม AI System
 
 ```
-Custom AI Decision Tree:
-┌─────────────────────────────────────────────────────────┐
-│  ต้องการ AI ประเภทไหน?                                  │
-│                                                         │
-│  ① ใช้ API (GPT-4, Claude) ─── ง่าย, แพง, ไม่ private │
-│  ② RAG + API ────────────── balance ดี สำหรับ knowledge│
-│  ③ Fine-tuned Model ──────── domain-specific, ควบคุมได้ │
-│  ④ Full Custom Model ─────── แพงมาก, เฉพาะองค์กรใหญ่   │
-│                                                         │
-│  แนะนำสำหรับ LINE OA:                                  │
-│  ├── Customer Service Bot → RAG + API                   │
-│  ├── Product Recommendation → ML Model                  │
-│  ├── Thai Language NLP → Fine-tuned WangchanBERTa      │
-│  └── Complex Conversations → Fine-tuned LLaMA/Mistral  │
-└─────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│                    Custom AI System for LINE Bot                    │
+│                                                                      │
+│  ┌────────────┐  ┌─────────────────────────────────────────────┐   │
+│  │  LINE OA   │  │              AI Processing Layer             │   │
+│  │  Webhook   │──▶  ┌──────────┐  ┌──────────┐  ┌──────────┐  │   │
+│  └────────────┘  │  │ Semantic │  │   RAG    │  │   LLM    │  │   │
+│                  │  │ Search   │  │ Context  │  │ Generate │  │   │
+│                  │  └──────────┘  └──────────┘  └──────────┘  │   │
+│                  └─────────────────────────────────────────────┘   │
+│                                                                      │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │                    Storage Layer                             │   │
+│  │  ┌──────────┐  ┌──────────┐  ┌────────────┐  ┌──────────┐ │   │
+│  │  │ Pinecone │  │Weaviate  │  │   Chroma   │  │  MySQL   │ │   │
+│  │  │(Vector)  │  │(Vector)  │  │  (Local)   │  │  (Data)  │ │   │
+│  │  └──────────┘  └──────────┘  └────────────┘  └──────────┘ │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                      │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │                    LLM Options                               │   │
+│  │  ┌──────────┐  ┌──────────┐  ┌────────────┐  ┌──────────┐ │   │
+│  │  │  GPT-4   │  │ Claude 3 │  │   Ollama   │  │Fine-tune │ │   │
+│  │  │(OpenAI)  │  │(Anthropic│  │  (Local)   │  │  Model   │ │   │
+│  │  └──────────┘  └──────────┘  └────────────┘  └──────────┘ │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+└────────────────────────────────────────────────────────────────────┘
 ```
 
----
+## 1. Thai Language Models Overview
 
-## 2. Thai Language Models
+### ภาษาไทยกับ AI
+ภาษาไทยมีความท้าทายพิเศษ:
+- ไม่มีช่องว่างระหว่างคำ (Word Segmentation ยาก)
+- มี Tone markers ที่เปลี่ยนความหมาย
+- มีคำยืมจากภาษาอื่นมาก
+- สคริปต์พิเศษที่ต้องการ Tokenizer เฉพาะ
 
-### 2.1 Available Thai Language Models
+### Models ที่รองรับภาษาไทยได้ดี
 
-```
-Thai Language Models:
+| Model | Provider | ภาษาไทย | Cost | Speed |
+|-------|----------|---------|------|-------|
+| GPT-4o | OpenAI | ดีมาก | สูง | กลาง |
+| Claude 3.5 Sonnet | Anthropic | ดีมาก | กลาง | เร็ว |
+| Llama 3.1 70B | Meta | ดี | ต่ำ | ช้า |
+| WangchanX | NECTEC | ดีมาก | ฟรี | ช้า |
+| OpenThaiGPT | Thai | ดีมาก | ต่ำ | กลาง |
+| Typhoon | SCB 10X | ดีมาก | ต่ำ | เร็ว |
 
-Model               Size    Use Case              Performance
-──────────────────────────────────────────────────────────────
-WangchanBERTa       178M    Classification/NER    ★★★★★
-                            Sentiment Analysis    
-──────────────────────────────────────────────────────────────
-PhayaThaiBERT       110M    Text Classification   ★★★★☆
-                            Token Classification  
-──────────────────────────────────────────────────────────────
-Typhoon-1.5B        1.5B    Thai Chatbot          ★★★★☆
-(SCBX)                      Instruction Following 
-──────────────────────────────────────────────────────────────
-Typhoon-7B          7B      Complex Thai NLP      ★★★★★
-                            Reasoning             
-──────────────────────────────────────────────────────────────
-SEA-LION-7B         7B      Southeast Asian NLP   ★★★★☆
-(AI Singapore)              Thai + Multilingual   
-──────────────────────────────────────────────────────────────
-LLaMA-3-Thai-8B     8B      General Thai NLP      ★★★★☆
-(Community)                 Fine-tuned on Thai    
-```
-
-### 2.2 WangchanBERTa สำหรับ Intent Classification
+## 2. Training Data Preparation จาก LINE Conversations
 
 ```python
-# ml/thai_nlp/intent_classifier.py
-from transformers import (
-    AutoTokenizer,
-    AutoModelForSequenceClassification,
-    TrainingArguments,
-    Trainer,
-)
-from datasets import Dataset
-import torch
-import numpy as np
+# scripts/prepare_training_data.py
+import json
+import mysql.connector
 import pandas as pd
-from sklearn.metrics import classification_report
-import mlflow
-
-class ThaiIntentClassifier:
-    """
-    Intent Classification สำหรับ LINE Bot
-    ใช้ WangchanBERTa ที่ fine-tune แล้ว
-    """
-    
-    def __init__(self, model_name='airesearch/wangchanberta-base-att-spm-uncased'):
-        self.model_name = model_name
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = None
-        self.label2id = {}
-        self.id2label = {}
-    
-    def prepare_dataset(self, texts, labels):
-        """เตรียม dataset สำหรับ fine-tuning"""
-        
-        # Create label mappings
-        unique_labels = sorted(set(labels))
-        self.label2id = {label: i for i, label in enumerate(unique_labels)}
-        self.id2label = {i: label for label, i in self.label2id.items()}
-        
-        # Tokenize
-        def tokenize_function(examples):
-            return self.tokenizer(
-                examples['text'],
-                padding='max_length',
-                truncation=True,
-                max_length=128,
-            )
-        
-        dataset = Dataset.from_dict({
-            'text': texts,
-            'labels': [self.label2id[l] for l in labels],
-        })
-        
-        return dataset.map(tokenize_function, batched=True)
-    
-    def fine_tune(self, train_texts, train_labels, eval_texts, eval_labels):
-        """
-        Fine-tune WangchanBERTa สำหรับ Intent Classification
-        
-        Intent categories:
-        - greeting: สวัสดี, ดีครับ
-        - product_inquiry: สอบถามสินค้า, ราคาเท่าไหร่
-        - order_status: เช็คออร์เดอร์, ส่งถึงไหนแล้ว
-        - complaint: ไม่พอใจ, สินค้าเสีย
-        - support: ช่วยด้วย, ติดต่อเจ้าหน้าที่
-        - farewell: ขอบคุณ, บาย
-        - other: อื่นๆ
-        """
-        
-        with mlflow.start_run(run_name="thai-intent-classifier"):
-            n_classes = len(set(train_labels))
-            
-            self.model = AutoModelForSequenceClassification.from_pretrained(
-                self.model_name,
-                num_labels=n_classes,
-                id2label=self.id2label,
-                label2id=self.label2id,
-            )
-            
-            train_dataset = self.prepare_dataset(train_texts, train_labels)
-            eval_dataset = self.prepare_dataset(eval_texts, eval_labels)
-            
-            training_args = TrainingArguments(
-                output_dir='./models/thai-intent-classifier',
-                num_train_epochs=5,
-                per_device_train_batch_size=16,
-                per_device_eval_batch_size=32,
-                warmup_steps=100,
-                weight_decay=0.01,
-                logging_dir='./logs',
-                logging_steps=50,
-                evaluation_strategy='epoch',
-                save_strategy='epoch',
-                load_best_model_at_end=True,
-                metric_for_best_model='f1',
-                report_to='mlflow',
-                learning_rate=2e-5,
-                fp16=torch.cuda.is_available(),
-            )
-            
-            def compute_metrics(eval_pred):
-                logits, labels = eval_pred
-                predictions = np.argmax(logits, axis=-1)
-                
-                report = classification_report(
-                    labels, predictions,
-                    target_names=list(self.id2label.values()),
-                    output_dict=True,
-                )
-                
-                return {
-                    'accuracy': report['accuracy'],
-                    'f1': report['weighted avg']['f1-score'],
-                    'precision': report['weighted avg']['precision'],
-                    'recall': report['weighted avg']['recall'],
-                }
-            
-            trainer = Trainer(
-                model=self.model,
-                args=training_args,
-                train_dataset=train_dataset,
-                eval_dataset=eval_dataset,
-                compute_metrics=compute_metrics,
-            )
-            
-            trainer.train()
-            
-            # Evaluate
-            results = trainer.evaluate()
-            print(f"\nFinal Results: {results}")
-            
-            # Save
-            self.model.save_pretrained('./models/thai-intent-classifier/final')
-            self.tokenizer.save_pretrained('./models/thai-intent-classifier/final')
-            
-            return results
-    
-    def predict(self, text, return_all=False):
-        """ทำนาย intent จาก text ภาษาไทย"""
-        
-        if not self.model:
-            raise ValueError("Model not loaded. Train or load a model first.")
-        
-        inputs = self.tokenizer(
-            text,
-            return_tensors='pt',
-            padding=True,
-            truncation=True,
-            max_length=128,
-        )
-        
-        with torch.no_grad():
-            outputs = self.model(**inputs)
-            logits = outputs.logits
-            probabilities = torch.softmax(logits, dim=-1)[0]
-        
-        predicted_id = probabilities.argmax().item()
-        predicted_label = self.id2label[predicted_id]
-        confidence = probabilities[predicted_id].item()
-        
-        if return_all:
-            return {
-                'intent': predicted_label,
-                'confidence': confidence,
-                'all_intents': {
-                    self.id2label[i]: float(p)
-                    for i, p in enumerate(probabilities)
-                },
-            }
-        
-        return predicted_label, confidence
-
-
-# Sample training data สำหรับ LINE Bot
-THAI_INTENT_TRAINING_DATA = [
-    # Greeting
-    ("สวัสดีครับ", "greeting"),
-    ("ดีครับ", "greeting"),
-    ("หวัดดี", "greeting"),
-    ("สวัสดีค่ะ พอดีอยากถามเรื่อง", "greeting"),
-    
-    # Product inquiry
-    ("ราคาสินค้าตัวนี้เท่าไหร่ครับ", "product_inquiry"),
-    ("มีสต็อกไหมครับ", "product_inquiry"),
-    ("อยากได้ข้อมูลเพิ่มเติมเกี่ยวกับสินค้า", "product_inquiry"),
-    ("รุ่นนี้มีสีอะไรบ้าง", "product_inquiry"),
-    
-    # Order status
-    ("ออร์เดอร์ไปแล้วส่งถึงไหนแล้วครับ", "order_status"),
-    ("เช็คสถานะพัสดุได้ไหม", "order_status"),
-    ("สั่งซื้อไปแล้ว 3 วัน ยังไม่ได้รับเลย", "order_status"),
-    ("ติดตามการจัดส่งได้อย่างไร", "order_status"),
-    
-    # Complaint
-    ("สินค้าที่ได้รับมาเสียหายครับ", "complaint"),
-    ("ได้รับสินค้าผิด", "complaint"),
-    ("คุณภาพไม่ดีเลย", "complaint"),
-    ("ไม่พอใจการบริการมาก", "complaint"),
-    
-    # Support
-    ("ช่วยด้วยครับ ไม่รู้จะทำยังไง", "support"),
-    ("อยากคุยกับเจ้าหน้าที่", "support"),
-    ("ติดต่อ admin ได้อย่างไร", "support"),
-    
-    # Farewell
-    ("ขอบคุณมากครับ", "farewell"),
-    ("ขอบคุณนะคะ", "farewell"),
-    ("โอเคครับ บาย", "farewell"),
-    
-    # Other
-    ("555", "other"),
-    ("อยากได้ส่วนลด", "other"),
-]
-```
-
----
-
-## 3. Fine-tuning LLMs
-
-### 3.1 Fine-tuning Typhoon สำหรับ Customer Service
-
-```python
-# ml/finetune/typhoon_finetuner.py
-import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
-from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training
-from trl import SFTTrainer, SFTConfig
-from datasets import Dataset
-import json
-
-class TyphoonFineTuner:
-    """
-    Fine-tune Typhoon-7B สำหรับ LINE Bot Customer Service
-    ใช้ QLoRA (4-bit quantization + LoRA)
-    """
-    
-    def __init__(self, 
-                 base_model="scb10x/typhoon-7b",
-                 output_dir="./models/typhoon-linebot"):
-        self.base_model = base_model
-        self.output_dir = output_dir
-    
-    def load_model(self):
-        """Load model ด้วย 4-bit quantization เพื่อประหยัด memory"""
-        
-        # BnB config สำหรับ 4-bit quantization
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.bfloat16,
-        )
-        
-        print(f"Loading {self.base_model}...")
-        
-        self.tokenizer = AutoTokenizer.from_pretrained(self.base_model)
-        self.tokenizer.pad_token = self.tokenizer.eos_token
-        
-        self.model = AutoModelForCausalLM.from_pretrained(
-            self.base_model,
-            quantization_config=bnb_config,
-            device_map="auto",
-            torch_dtype=torch.bfloat16,
-        )
-        
-        # Prepare for k-bit training
-        self.model = prepare_model_for_kbit_training(self.model)
-        
-        return self
-    
-    def add_lora_adapters(self):
-        """เพิ่ม LoRA adapters"""
-        
-        lora_config = LoraConfig(
-            task_type=TaskType.CAUSAL_LM,
-            r=16,               # Rank
-            lora_alpha=32,      # Alpha
-            target_modules=[    # Modules to apply LoRA
-                "q_proj", "k_proj", "v_proj", "o_proj",
-                "gate_proj", "up_proj", "down_proj",
-            ],
-            lora_dropout=0.05,
-            bias="none",
-        )
-        
-        self.model = get_peft_model(self.model, lora_config)
-        
-        trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-        total_params = sum(p.numel() for p in self.model.parameters())
-        
-        print(f"Trainable parameters: {trainable_params:,} ({100*trainable_params/total_params:.2f}%)")
-        
-        return self
-    
-    def prepare_dataset(self, conversations):
-        """
-        เตรียม dataset จาก LINE Bot conversations
-        
-        Format: ChatML
-        <|im_start|>system
-        คุณคือผู้ช่วยของร้านค้า X ตอบคำถามลูกค้าด้วยภาษาไทยที่สุภาพ
-        <|im_end|>
-        <|im_start|>user
-        สินค้าราคาเท่าไหร่
-        <|im_end|>
-        <|im_start|>assistant
-        ราคาสินค้าเริ่มต้นที่ 299 บาทครับ...
-        <|im_end|>
-        """
-        
-        def format_conversation(conv):
-            system_prompt = """คุณคือผู้ช่วย AI ของร้านค้า ตอบคำถามลูกค้าด้วยภาษาไทยที่สุภาพ 
-กระชับ และตรงประเด็น ให้ข้อมูลที่ถูกต้องและเป็นประโยชน์"""
-            
-            formatted = f"<|im_start|>system\n{system_prompt}\n<|im_end|>\n"
-            
-            for turn in conv:
-                role = turn['role']
-                content = turn['content']
-                formatted += f"<|im_start|>{role}\n{content}\n<|im_end|>\n"
-            
-            return formatted
-        
-        texts = [format_conversation(conv) for conv in conversations]
-        
-        return Dataset.from_dict({'text': texts})
-    
-    def train(self, conversations):
-        """Train ด้วย SFT (Supervised Fine-tuning)"""
-        
-        dataset = self.prepare_dataset(conversations)
-        
-        training_config = SFTConfig(
-            output_dir=self.output_dir,
-            num_train_epochs=3,
-            per_device_train_batch_size=4,
-            gradient_accumulation_steps=4,
-            learning_rate=2e-4,
-            warmup_ratio=0.05,
-            lr_scheduler_type="cosine",
-            save_steps=100,
-            logging_steps=25,
-            fp16=False,
-            bf16=True,
-            max_seq_length=2048,
-            dataset_text_field="text",
-            packing=True,
-            report_to="mlflow",
-        )
-        
-        trainer = SFTTrainer(
-            model=self.model,
-            tokenizer=self.tokenizer,
-            train_dataset=dataset,
-            args=training_config,
-        )
-        
-        print("Starting fine-tuning...")
-        trainer.train()
-        
-        # Save adapter
-        trainer.model.save_pretrained(f"{self.output_dir}/final-adapter")
-        self.tokenizer.save_pretrained(f"{self.output_dir}/final-adapter")
-        
-        print(f"Fine-tuning complete. Saved to {self.output_dir}/final-adapter")
-    
-    def generate_response(self, user_message, system_prompt=None, max_tokens=500):
-        """Generate response จาก fine-tuned model"""
-        
-        if system_prompt is None:
-            system_prompt = "คุณคือผู้ช่วย AI ของร้านค้า ตอบคำถามด้วยภาษาไทยที่สุภาพ"
-        
-        prompt = f"""<|im_start|>system
-{system_prompt}
-<|im_end|>
-<|im_start|>user
-{user_message}
-<|im_end|>
-<|im_start|>assistant
-"""
-        
-        inputs = self.tokenizer(
-            prompt, return_tensors="pt"
-        ).to(self.model.device)
-        
-        with torch.no_grad():
-            outputs = self.model.generate(
-                **inputs,
-                max_new_tokens=max_tokens,
-                temperature=0.7,
-                top_p=0.9,
-                do_sample=True,
-                eos_token_id=self.tokenizer.eos_token_id,
-                pad_token_id=self.tokenizer.eos_token_id,
-                repetition_penalty=1.1,
-            )
-        
-        response = self.tokenizer.decode(
-            outputs[0][inputs['input_ids'].shape[1]:],
-            skip_special_tokens=True
-        )
-        
-        return response.strip()
-
-
-# Sample fine-tuning conversations
-SAMPLE_CONVERSATIONS = [
-    [
-        {"role": "user", "content": "สวัสดีครับ อยากสอบถามเรื่องสินค้า"},
-        {"role": "assistant", "content": "สวัสดีครับ! ยินดีช่วยเหลือครับ มีอะไรอยากสอบถามเกี่ยวกับสินค้าได้เลยนะครับ"},
-    ],
-    [
-        {"role": "user", "content": "สินค้าชิ้นนี้ราคาเท่าไหร่"},
-        {"role": "assistant", "content": "สินค้าชิ้นนี้ราคา 599 บาทครับ หากซื้อ 2 ชิ้นขึ้นไปลด 10% เพิ่มเติมด้วยครับ มีสนใจสั่งซื้อไหมครับ?"},
-    ],
-    [
-        {"role": "user", "content": "สั่งแล้วเมื่อวาน ยังไม่ได้รับเลยครับ"},
-        {"role": "assistant", "content": "ขออภัยในความไม่สะดวกนะครับ รบกวนแจ้งหมายเลขออร์เดอร์ให้ผมทราบด้วยนะครับ จะตรวจสอบสถานะการจัดส่งให้ทันทีเลยครับ"},
-    ],
-    [
-        {"role": "user", "content": "สินค้าที่ได้รับมาเสียหายครับ"},
-        {"role": "assistant", "content": "ขอโทษอย่างยิ่งสำหรับปัญหาที่เกิดขึ้นนะครับ กรุณาถ่ายรูปสินค้าที่เสียหายส่งมาให้ผมดูด้วยครับ เราจะดำเนินการเปลี่ยนสินค้าให้ทันทีครับ"},
-    ],
-]
-```
-
----
-
-## 4. RLHF for Chatbots
-
-```python
-# ml/rlhf/reward_model.py
-"""
-RLHF (Reinforcement Learning from Human Feedback)
-สำหรับ LINE Bot Chatbot
-"""
-
-import torch
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from torch.optim import AdamW
-
-class RewardModel:
-    """
-    Reward Model สำหรับประเมิน response quality
-    """
-    
-    def __init__(self, base_model='airesearch/wangchanberta-base-att-spm-uncased'):
-        self.tokenizer = AutoTokenizer.from_pretrained(base_model)
-        self.model = AutoModelForSequenceClassification.from_pretrained(
-            base_model,
-            num_labels=1,  # Single reward score
-        )
-    
-    def prepare_pairwise_data(self, pairs):
-        """
-        เตรียมข้อมูล pairwise comparisons
-        pairs: list of (prompt, chosen_response, rejected_response)
-        """
-        chosen_inputs = []
-        rejected_inputs = []
-        
-        for prompt, chosen, rejected in pairs:
-            chosen_text = f"{prompt} [SEP] {chosen}"
-            rejected_text = f"{prompt} [SEP] {rejected}"
-            
-            chosen_inputs.append(chosen_text)
-            rejected_inputs.append(rejected_text)
-        
-        return chosen_inputs, rejected_inputs
-    
-    def train(self, pairs, epochs=3, lr=1e-5):
-        """
-        Train reward model ด้วย pairwise ranking loss
-        """
-        optimizer = AdamW(self.model.parameters(), lr=lr)
-        
-        chosen_inputs, rejected_inputs = self.prepare_pairwise_data(pairs)
-        
-        for epoch in range(epochs):
-            total_loss = 0
-            
-            for chosen, rejected in zip(chosen_inputs, rejected_inputs):
-                # Tokenize
-                chosen_enc = self.tokenizer(
-                    chosen, return_tensors='pt',
-                    padding=True, truncation=True, max_length=512
-                )
-                rejected_enc = self.tokenizer(
-                    rejected, return_tensors='pt',
-                    padding=True, truncation=True, max_length=512
-                )
-                
-                # Forward pass
-                chosen_reward = self.model(**chosen_enc).logits
-                rejected_reward = self.model(**rejected_enc).logits
-                
-                # Ranking loss: chosen > rejected
-                loss = -torch.log(torch.sigmoid(chosen_reward - rejected_reward)).mean()
-                
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                
-                total_loss += loss.item()
-            
-            avg_loss = total_loss / len(pairs)
-            print(f"Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.4f}")
-    
-    def score(self, prompt, response):
-        """ให้คะแนน response"""
-        text = f"{prompt} [SEP] {response}"
-        
-        inputs = self.tokenizer(
-            text, return_tensors='pt',
-            padding=True, truncation=True, max_length=512
-        )
-        
-        with torch.no_grad():
-            score = self.model(**inputs).logits[0].item()
-        
-        return score
-
-
-# Sample preference data สำหรับ Thai LINE Bot
-PREFERENCE_DATA = [
-    (
-        "สินค้าราคาเท่าไหร่",
-        "สินค้าชิ้นนี้ราคา 299 บาทครับ ถ้าสนใจสั่งซื้อแจ้งได้เลยนะครับ",  # chosen
-        "ผมไม่ทราบราคาครับ กรุณาติดต่อเจ้าหน้าที่",  # rejected
-    ),
-    (
-        "ส่งสินค้าถึงจังหวัดชลบุรีได้ไหม",
-        "ได้เลยครับ เราจัดส่งทั่วประเทศไทย ใช้เวลา 2-3 วันทำการครับ ค่าจัดส่ง 50 บาท หรือฟรีเมื่อซื้อครบ 500 บาท",  # chosen
-        "ได้ครับ",  # rejected (too brief)
-    ),
-    (
-        "คืนสินค้าได้ไหม",
-        "ได้ครับ เรารับคืนสินค้าภายใน 7 วัน หากสินค้าไม่มีการใช้งานและมีสภาพสมบูรณ์ครับ กรุณาแจ้งเหตุผลการคืนด้วยนะครับ",  # chosen
-        "ขึ้นอยู่กับเงื่อนไขครับ",  # rejected (vague)
-    ),
-]
-```
-
----
-
-## 5. RAG (Retrieval Augmented Generation)
-
-### 5.1 Complete RAG System
-
-```python
-# ml/rag/rag_system.py
-from typing import List, Dict, Optional
-import json
+from datetime import datetime, timedelta
+from typing import List, Dict, Tuple
 import re
 
-class LineRAGSystem:
-    """
-    RAG System สำหรับ LINE Bot
-    ช่วยให้ Bot ตอบคำถามจาก knowledge base ของธุรกิจ
-    """
-    
-    def __init__(self, config: Dict):
-        self.config = config
-        self.vector_store = None
-        self.llm_client = None
-        self.embedding_model = None
-    
-    def setup(self):
-        """Initialize all components"""
-        self._setup_embeddings()
-        self._setup_vector_store()
-        self._setup_llm()
-        return self
-    
-    def _setup_embeddings(self):
-        """Setup multilingual embeddings ที่รองรับภาษาไทย"""
-        from sentence_transformers import SentenceTransformer
-        
-        # Model ที่รองรับภาษาไทย
-        model_name = self.config.get(
-            'embedding_model',
-            'intfloat/multilingual-e5-base'
-        )
-        
-        self.embedding_model = SentenceTransformer(model_name)
-        print(f"Embedding model loaded: {model_name}")
-    
-    def _setup_vector_store(self):
-        """Setup vector database"""
-        vector_store_type = self.config.get('vector_store', 'chroma')
-        
-        if vector_store_type == 'chroma':
-            import chromadb
-            
-            self.chroma_client = chromadb.PersistentClient(
-                path=self.config.get('chroma_path', './chroma_db')
-            )
-            
-            self.vector_store = self.chroma_client.get_or_create_collection(
-                name="linebot_knowledge",
-                metadata={"hnsw:space": "cosine"},
-            )
-            
-        elif vector_store_type == 'weaviate':
-            import weaviate
-            
-            self.weaviate_client = weaviate.Client(
-                url=self.config.get('weaviate_url', 'http://localhost:8080'),
-            )
-            
-            # Create schema
-            schema = {
-                "classes": [{
-                    "class": "KnowledgeBase",
-                    "vectorizer": "none",
-                    "properties": [
-                        {"name": "content", "dataType": ["text"]},
-                        {"name": "source", "dataType": ["string"]},
-                        {"name": "category", "dataType": ["string"]},
-                        {"name": "metadata", "dataType": ["text"]},
-                    ],
-                }]
-            }
-            
-            if not self.weaviate_client.schema.exists("KnowledgeBase"):
-                self.weaviate_client.schema.create(schema)
-                
-        elif vector_store_type == 'pinecone':
-            from pinecone import Pinecone, ServerlessSpec
-            
-            pc = Pinecone(api_key=self.config['pinecone_api_key'])
-            
-            index_name = self.config.get('pinecone_index', 'linebot-knowledge')
-            
-            if index_name not in pc.list_indexes().names():
-                pc.create_index(
-                    name=index_name,
-                    dimension=768,  # for multilingual-e5-base
-                    metric="cosine",
-                    spec=ServerlessSpec(
-                        cloud='aws',
-                        region='ap-southeast-1'
-                    ),
-                )
-            
-            self.vector_store = pc.Index(index_name)
-    
-    def _setup_llm(self):
-        """Setup LLM client"""
-        llm_provider = self.config.get('llm_provider', 'openai')
-        
-        if llm_provider == 'openai':
-            from openai import OpenAI
-            self.llm_client = OpenAI(api_key=self.config['openai_api_key'])
-            self.llm_model = self.config.get('llm_model', 'gpt-4o-mini')
-            
-        elif llm_provider == 'anthropic':
-            import anthropic
-            self.llm_client = anthropic.Anthropic(api_key=self.config['anthropic_api_key'])
-            self.llm_model = self.config.get('llm_model', 'claude-3-haiku-20240307')
-            
-        elif llm_provider == 'local':
-            # Ollama local model
-            import ollama
-            self.llm_client = ollama
-            self.llm_model = self.config.get('llm_model', 'typhoon-7b')
-    
-    def add_documents(self, documents: List[Dict]):
-        """
-        เพิ่ม documents ลง knowledge base
-        
-        documents: list of {content, source, category, metadata}
-        """
-        
-        texts = [doc['content'] for doc in documents]
-        
-        # Compute embeddings
-        print(f"Computing embeddings for {len(texts)} documents...")
-        embeddings = self.embedding_model.encode(
-            texts,
-            batch_size=32,
-            show_progress_bar=True,
-            normalize_embeddings=True,
-        )
-        
-        # Store in Chroma
-        ids = [f"doc_{i}" for i in range(len(documents))]
-        
-        self.vector_store.upsert(
-            ids=ids,
-            embeddings=embeddings.tolist(),
-            documents=texts,
-            metadatas=[{
-                'source': doc.get('source', ''),
-                'category': doc.get('category', ''),
-                'metadata': json.dumps(doc.get('metadata', {})),
-            } for doc in documents],
-        )
-        
-        print(f"Added {len(documents)} documents to knowledge base")
-    
-    def retrieve(self, query: str, n_results: int = 5) -> List[Dict]:
-        """
-        ค้นหา relevant documents จาก vector store
-        """
-        query_embedding = self.embedding_model.encode(
-            query,
-            normalize_embeddings=True,
-        )
-        
-        results = self.vector_store.query(
-            query_embeddings=[query_embedding.tolist()],
-            n_results=n_results,
-            include=['documents', 'metadatas', 'distances'],
-        )
-        
-        retrieved_docs = []
-        for doc, metadata, distance in zip(
-            results['documents'][0],
-            results['metadatas'][0],
-            results['distances'][0],
-        ):
-            retrieved_docs.append({
-                'content': doc,
-                'source': metadata.get('source', ''),
-                'category': metadata.get('category', ''),
-                'relevance_score': 1 - distance,  # Convert distance to similarity
-            })
-        
-        return retrieved_docs
-    
-    def generate_response(self, user_query: str, chat_history: List = None) -> str:
-        """
-        Generate response ด้วย RAG
-        """
-        
-        # 1. Retrieve relevant documents
-        relevant_docs = self.retrieve(user_query, n_results=5)
-        
-        # Filter by relevance threshold
-        relevant_docs = [d for d in relevant_docs if d['relevance_score'] > 0.5]
-        
-        # 2. Build context
-        if relevant_docs:
-            context = "\n\n".join([
-                f"[{doc['category']}] {doc['content']}"
-                for doc in relevant_docs
-            ])
-        else:
-            context = "ไม่พบข้อมูลที่เกี่ยวข้อง"
-        
-        # 3. Build prompt
-        system_prompt = """คุณคือผู้ช่วย AI ของร้านค้า ตอบคำถามลูกค้าด้วยภาษาไทยที่สุภาพ
-
-กฎการตอบ:
-1. ตอบตามข้อมูลที่ให้มาเท่านั้น
-2. หากไม่มีข้อมูล บอกว่าไม่ทราบและแนะนำให้ติดต่อเจ้าหน้าที่
-3. ตอบกระชับ ตรงประเด็น
-4. ใช้ภาษาที่เป็นมิตร
-
-ข้อมูลที่เกี่ยวข้อง:
-{context}"""
-        
-        messages = [
-            {"role": "system", "content": system_prompt.format(context=context)}
-        ]
-        
-        # Add chat history
-        if chat_history:
-            messages.extend(chat_history[-6:])  # Last 3 turns
-        
-        messages.append({"role": "user", "content": user_query})
-        
-        # 4. Generate response
-        llm_provider = self.config.get('llm_provider', 'openai')
-        
-        if llm_provider == 'openai':
-            response = self.llm_client.chat.completions.create(
-                model=self.llm_model,
-                messages=messages,
-                temperature=0.3,
-                max_tokens=500,
-            )
-            return response.choices[0].message.content
-            
-        elif llm_provider == 'anthropic':
-            response = self.llm_client.messages.create(
-                model=self.llm_model,
-                messages=[m for m in messages if m['role'] != 'system'],
-                system=messages[0]['content'],
-                max_tokens=500,
-                temperature=0.3,
-            )
-            return response.content[0].text
-            
-        elif llm_provider == 'local':
-            response = self.llm_client.chat(
-                model=self.llm_model,
-                messages=messages,
-                options={'temperature': 0.3},
-            )
-            return response['message']['content']
-        
-        return "ขออภัยครับ เกิดข้อผิดพลาดในการประมวลผล"
-    
-    def add_feedback(self, query: str, response: str, rating: int, user_id: str):
-        """บันทึก feedback เพื่อ improve ในอนาคต"""
-        feedback = {
-            'query': query,
-            'response': response,
-            'rating': rating,  # 1-5
-            'user_id': user_id,
-            'timestamp': __import__('datetime').datetime.now().isoformat(),
-        }
-        
-        # Store feedback for RLHF training
-        with open('./data/feedback.jsonl', 'a') as f:
-            f.write(json.dumps(feedback, ensure_ascii=False) + '\n')
-```
-
-### 5.2 LINE Bot Integration กับ RAG
-
-```javascript
-// src/ai/RAGLineBot.js
-const axios = require('axios');
-
-class RAGLineBot {
-  constructor({ ragApiUrl, lineClient, sessionManager }) {
-    this.ragApi = axios.create({
-      baseURL: ragApiUrl,
-      timeout: 10000,
-    });
-    this.lineClient = lineClient;
-    this.sessionManager = sessionManager;
-  }
-  
-  async handleMessage(event) {
-    const userId = event.source.userId;
-    const userMessage = event.message.text;
-    
-    // Get chat history
-    const session = await this.sessionManager.getSession(userId);
-    const chatHistory = session?.chatHistory || [];
-    
-    // Show typing indicator
-    await this.lineClient.showLoadingAnimation(userId, 5);
-    
-    try {
-      // Call RAG API
-      const response = await this.ragApi.post('/generate', {
-        query: userMessage,
-        user_id: userId,
-        chat_history: chatHistory,
-      });
-      
-      const aiResponse = response.data.response;
-      const sources = response.data.sources || [];
-      
-      // Build LINE message
-      const messages = this.buildResponseMessages(aiResponse, sources);
-      
-      // Reply
-      await this.lineClient.replyMessage(event.replyToken, messages);
-      
-      // Update session
-      await this.sessionManager.updateSession(userId, {
-        chatHistory: [
-          ...chatHistory.slice(-10), // Keep last 5 turns
-          { role: 'user', content: userMessage },
-          { role: 'assistant', content: aiResponse },
-        ],
-      });
-      
-    } catch (error) {
-      console.error('RAG API error:', error);
-      
-      await this.lineClient.replyMessage(event.replyToken, {
-        type: 'text',
-        text: 'ขออภัยครับ กำลังประมวลผล กรุณาลองใหม่อีกครั้ง',
-      });
-    }
-  }
-  
-  buildResponseMessages(response, sources) {
-    const messages = [{
-      type: 'text',
-      text: response,
-    }];
-    
-    // เพิ่ม source references ถ้ามี
-    if (sources && sources.length > 0) {
-      const quickReplies = sources
-        .filter(s => s.url)
-        .slice(0, 3)
-        .map((source, i) => ({
-          type: 'action',
-          action: {
-            type: 'uri',
-            label: `อ่านเพิ่มเติม ${i + 1}`,
-            uri: source.url,
-          },
-        }));
-      
-      if (quickReplies.length > 0) {
-        messages[0].quickReply = { items: quickReplies };
-      }
-    }
-    
-    return messages;
-  }
-  
-  async handleFeedback(event) {
-    const userId = event.source.userId;
-    const data = JSON.parse(event.postback.data);
-    
-    if (data.action === 'feedback') {
-      await this.ragApi.post('/feedback', {
-        query: data.query,
-        response: data.response,
-        rating: data.rating,
-        user_id: userId,
-      });
-      
-      await this.lineClient.replyMessage(event.replyToken, {
-        type: 'text',
-        text: 'ขอบคุณสำหรับ feedback ครับ จะนำไปปรับปรุงต่อไปครับ 🙏',
-      });
-    }
-  }
-}
-
-module.exports = RAGLineBot;
-```
-
----
-
-## 6. Vector Databases Comparison
-
-### 6.1 Comparison Matrix
-
-```
-Vector Database Comparison:
-
-┌─────────────────┬───────────┬───────────┬───────────┬───────────┐
-│  Feature        │  Chroma   │  Weaviate │  Pinecone │  Qdrant   │
-├─────────────────┼───────────┼───────────┼───────────┼───────────┤
-│  Type           │ Open      │ Open/     │ Managed   │ Open/     │
-│                 │ Source    │ Managed   │ Cloud     │ Managed   │
-├─────────────────┼───────────┼───────────┼───────────┼───────────┤
-│  Setup          │ ★★★★★    │ ★★★☆☆    │ ★★★★★    │ ★★★★☆    │
-│  Complexity     │ Easy      │ Medium    │ Easy      │ Easy      │
-├─────────────────┼───────────┼───────────┼───────────┼───────────┤
-│  Performance    │ ★★★☆☆    │ ★★★★☆    │ ★★★★★    │ ★★★★★    │
-│  (1M vectors)   │ ~50ms     │ ~10ms     │ ~5ms      │ ~5ms      │
-├─────────────────┼───────────┼───────────┼───────────┼───────────┤
-│  Scalability    │ ★★☆☆☆    │ ★★★★☆    │ ★★★★★    │ ★★★★☆    │
-├─────────────────┼───────────┼───────────┼───────────┼───────────┤
-│  Cost           │ Free      │ Free/     │ $70+/mo   │ Free/     │
-│                 │           │ $25+/mo   │           │ $9+/mo    │
-├─────────────────┼───────────┼───────────┼───────────┼───────────┤
-│  Thai Support   │ ✓         │ ✓         │ ✓         │ ✓         │
-│  (via embedding)│           │           │           │           │
-├─────────────────┼───────────┼───────────┼───────────┼───────────┤
-│  Best For       │ Dev/Test  │ Production│ Enterprise│ Production│
-│                 │ Prototype │ Medium    │ Large     │ Medium    │
-└─────────────────┴───────────┴───────────┴───────────┴───────────┘
-
-Recommendation for LINE Bot:
-├── Development: Chroma (zero cost, easy setup)
-├── Production Small: Qdrant (cost-effective, good performance)
-├── Production Large: Pinecone (managed, scalable)
-└── Self-hosted Enterprise: Weaviate or Qdrant
-```
-
-### 6.2 Qdrant Setup
-
-```python
-# ml/rag/qdrant_store.py
-from qdrant_client import QdrantClient
-from qdrant_client.models import (
-    VectorParams, Distance, PointStruct,
-    Filter, FieldCondition, MatchValue,
-    SearchRequest, ScoredPoint,
-)
-import uuid
-
-class QdrantKnowledgeStore:
-    """
-    Knowledge Store ด้วย Qdrant
-    """
-    
-    def __init__(self, url="http://localhost:6333", collection_name="linebot_knowledge"):
-        self.client = QdrantClient(url=url)
-        self.collection_name = collection_name
-        self.vector_size = 768  # multilingual-e5-base dimension
-    
-    def initialize(self):
-        """สร้าง collection"""
-        
-        collections = self.client.get_collections().collections
-        existing_names = [c.name for c in collections]
-        
-        if self.collection_name not in existing_names:
-            self.client.create_collection(
-                collection_name=self.collection_name,
-                vectors_config=VectorParams(
-                    size=self.vector_size,
-                    distance=Distance.COSINE,
-                ),
-            )
-            print(f"Created collection: {self.collection_name}")
-        else:
-            print(f"Collection already exists: {self.collection_name}")
-    
-    def upsert_documents(self, documents, embeddings):
-        """
-        เพิ่มหรืออัพเดต documents
-        """
-        points = []
-        
-        for doc, embedding in zip(documents, embeddings):
-            point = PointStruct(
-                id=str(uuid.uuid4()),
-                vector=embedding.tolist(),
-                payload={
-                    'content': doc['content'],
-                    'source': doc.get('source', ''),
-                    'category': doc.get('category', ''),
-                    'title': doc.get('title', ''),
-                    'metadata': doc.get('metadata', {}),
-                },
-            )
-            points.append(point)
-        
-        self.client.upsert(
-            collection_name=self.collection_name,
-            points=points,
-        )
-        
-        print(f"Upserted {len(points)} documents")
-    
-    def search(self, query_embedding, n_results=5, category_filter=None):
-        """ค้นหา relevant documents"""
-        
-        query_filter = None
-        if category_filter:
-            query_filter = Filter(
-                must=[
-                    FieldCondition(
-                        key="category",
-                        match=MatchValue(value=category_filter),
-                    )
-                ]
-            )
-        
-        results = self.client.search(
-            collection_name=self.collection_name,
-            query_vector=query_embedding.tolist(),
-            query_filter=query_filter,
-            limit=n_results,
-            with_payload=True,
-        )
-        
-        return [
-            {
-                'content': r.payload['content'],
-                'source': r.payload.get('source', ''),
-                'category': r.payload.get('category', ''),
-                'title': r.payload.get('title', ''),
-                'score': r.score,
-            }
-            for r in results
-        ]
-    
-    def delete_by_source(self, source):
-        """ลบ documents ตาม source"""
-        self.client.delete(
-            collection_name=self.collection_name,
-            points_selector=Filter(
-                must=[
-                    FieldCondition(
-                        key="source",
-                        match=MatchValue(value=source),
-                    )
-                ]
-            ),
-        )
-```
-
----
-
-## 7. Model Serving
-
-### 7.1 Ollama Setup สำหรับ Local Models
-
-```bash
-# scripts/setup-ollama.sh
-#!/bin/bash
-
-# Install Ollama
-curl -fsSL https://ollama.ai/install.sh | sh
-
-# Pull Thai-friendly models
-ollama pull typhoon2-8b
-ollama pull llama3.1:8b
-
-# Create custom Modelfile สำหรับ LINE Bot
-cat > /tmp/Modelfile << 'EOF'
-FROM typhoon2-8b
-
-# Set system prompt สำหรับ LINE Bot customer service
-SYSTEM """
-คุณคือผู้ช่วย AI ของร้านค้า Thai Shop 
-ตอบคำถามลูกค้าด้วยภาษาไทยที่สุภาพและเป็นมิตร
-ตอบกระชับ ตรงประเด็น และเป็นประโยชน์
-
-หากไม่แน่ใจ ให้แนะนำให้ติดต่อเจ้าหน้าที่ที่ LINE: @thaishop
-"""
-
-# Tune parameters
-PARAMETER temperature 0.3
-PARAMETER top_p 0.9
-PARAMETER top_k 40
-PARAMETER repeat_penalty 1.1
-PARAMETER num_ctx 4096
-EOF
-
-ollama create linebot-assistant -f /tmp/Modelfile
-
-echo "Ollama setup complete"
-```
-
-### 7.2 vLLM Deployment
-
-```yaml
-# kubernetes/vllm-deployment.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: vllm-server
-  namespace: linebot
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: vllm-server
-  template:
-    metadata:
-      labels:
-        app: vllm-server
-    spec:
-      containers:
-      - name: vllm
-        image: vllm/vllm-openai:latest
-        command:
-          - python
-          - -m
-          - vllm.entrypoints.openai.api_server
-          - --model
-          - scb10x/typhoon-7b
-          - --dtype
-          - bfloat16
-          - --max-model-len
-          - "4096"
-          - --tensor-parallel-size
-          - "1"
-          - --gpu-memory-utilization
-          - "0.9"
-          - --port
-          - "8000"
-        ports:
-        - containerPort: 8000
-        resources:
-          limits:
-            nvidia.com/gpu: "1"
-            memory: "24Gi"
-          requests:
-            nvidia.com/gpu: "1"
-            memory: "20Gi"
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 8000
-          initialDelaySeconds: 120
-          periodSeconds: 10
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: vllm-service
-  namespace: linebot
-spec:
-  selector:
-    app: vllm-server
-  ports:
-  - port: 8000
-    targetPort: 8000
-```
-
----
-
-## 8. Cost Comparison
-
-```
-Cost Comparison: GPT-4 vs Custom Model
-
-สมมติ: LINE Bot ที่มี 100,000 messages/วัน
-       Average tokens: 500 input + 300 output per message
-
-GPT-4o (gpt-4o):
-├── Input: 100,000 × 500 tokens = 50M tokens/day
-├── Output: 100,000 × 300 tokens = 30M tokens/day
-├── Cost: 50M × $2.50/1M + 30M × $10/1M
-├── Daily cost: $125 + $300 = $425/day
-└── Monthly cost: ~$12,750/month
-
-GPT-4o-mini:
-├── Cost: 50M × $0.15/1M + 30M × $0.60/1M
-├── Daily cost: $7.5 + $18 = $25.5/day
-└── Monthly cost: ~$765/month
-
-Custom Model (Typhoon-7B on vLLM):
-├── GPU instance (A100 40GB): ~$3/hr
-├── Can handle ~1000 req/min
-├── For 100k req/day ≈ 70 req/min average
-├── 1 GPU instance เพียงพอ
-├── Monthly cost: ~$2,160/month (24/7)
-├── But: Setup cost + maintenance
-└── Break-even vs GPT-4o: ~3 months
-
-Custom Model (Typhoon-7B Serverless):
-├── Modal.com หรือ RunPod Serverless
-├── Pay per request: ~$0.0001/token
-├── For same usage: ~$800/month
-└── No maintenance overhead
-
-Recommendation:
-├── < 10k msg/day: GPT-4o-mini (simplest, cheapest)
-├── 10k-100k msg/day: Serverless GPU + local model
-├── > 100k msg/day: Dedicated GPU + vLLM
-└── Privacy-critical: Always local model
-```
-
----
-
-## 9. Evaluation Framework
-
-```python
-# ml/evaluation/eval_framework.py
-from typing import List, Dict
-import json
-import re
-
-class ChatbotEvaluator:
-    """
-    Evaluate chatbot quality ด้วย multiple metrics
-    """
-    
-    def __init__(self, judge_model_client=None):
-        self.judge_client = judge_model_client  # LLM as judge
-    
-    def evaluate_response(self, question: str, response: str, 
-                           ground_truth: str = None) -> Dict:
-        """
-        Evaluate single response
-        """
-        metrics = {}
-        
-        # 1. Length check
-        metrics['response_length'] = len(response)
-        metrics['is_too_short'] = len(response) < 20
-        metrics['is_too_long'] = len(response) > 1000
-        
-        # 2. Thai language check
-        thai_chars = sum(1 for c in response if '฀' <= c <= '๿')
-        metrics['thai_ratio'] = thai_chars / max(len(response), 1)
-        metrics['has_thai'] = metrics['thai_ratio'] > 0.3
-        
-        # 3. Politeness markers
-        polite_markers = ['ครับ', 'ค่ะ', 'นะครับ', 'นะคะ', 'ขอบคุณ', 'ยินดี']
-        metrics['has_polite_marker'] = any(m in response for m in polite_markers)
-        
-        # 4. Question answering quality (if ground truth provided)
-        if ground_truth:
-            metrics['answer_overlap'] = self.calculate_answer_overlap(
-                response, ground_truth
-            )
-        
-        # 5. LLM-as-Judge evaluation
-        if self.judge_client:
-            judge_score = self.llm_judge(question, response)
-            metrics.update(judge_score)
-        
-        # Overall score
-        score = 0
-        if not metrics['is_too_short']: score += 20
-        if not metrics['is_too_long']: score += 10
-        if metrics['has_thai']: score += 20
-        if metrics['has_polite_marker']: score += 20
-        if metrics.get('answer_overlap', 0) > 0.5: score += 30
-        
-        metrics['overall_score'] = score
-        
-        return metrics
-    
-    def calculate_answer_overlap(self, response, ground_truth):
-        """คำนวณ token overlap ระหว่าง response กับ ground truth"""
-        response_tokens = set(response.split())
-        truth_tokens = set(ground_truth.split())
-        
-        if not truth_tokens:
-            return 0
-        
-        overlap = len(response_tokens & truth_tokens)
-        return overlap / len(truth_tokens)
-    
-    def llm_judge(self, question: str, response: str) -> Dict:
-        """ใช้ LLM เพื่อประเมิน response quality"""
-        
-        prompt = f"""ประเมิน response ของ chatbot ตาม criteria ต่อไปนี้:
-คำถาม: {question}
-คำตอบ: {response}
-
-ให้คะแนน 1-5 ในแต่ละด้าน:
-1. ความถูกต้อง (Correctness)
-2. ความเป็นมิตร (Friendliness)  
-3. ความกระชับ (Conciseness)
-4. ภาษาไทยที่ถูกต้อง (Thai Language)
-
-ตอบในรูปแบบ JSON:
-{{"correctness": 4, "friendliness": 5, "conciseness": 3, "thai_language": 5}}"""
-        
-        try:
-            response_text = self.judge_client.chat.completions.create(
-                model='gpt-4o-mini',
-                messages=[{'role': 'user', 'content': prompt}],
-                temperature=0,
-                max_tokens=100,
-            ).choices[0].message.content
-            
-            # Parse JSON
-            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
-            if json_match:
-                scores = json.loads(json_match.group())
-                scores['llm_judge_avg'] = sum(scores.values()) / len(scores)
-                return scores
-        except Exception as e:
-            print(f"LLM judge error: {e}")
-        
-        return {}
-    
-    def evaluate_dataset(self, test_cases: List[Dict]) -> Dict:
-        """
-        Evaluate ชุด test cases
-        
-        test_cases: [{'question': ..., 'response': ..., 'ground_truth': ...}]
-        """
-        all_metrics = []
-        
-        for case in test_cases:
-            metrics = self.evaluate_response(
-                case['question'],
-                case['response'],
-                case.get('ground_truth'),
-            )
-            all_metrics.append(metrics)
-        
-        # Aggregate
-        avg_metrics = {}
-        for key in all_metrics[0].keys():
-            if isinstance(all_metrics[0][key], (int, float)):
-                avg_metrics[f'avg_{key}'] = sum(m[key] for m in all_metrics) / len(all_metrics)
-        
-        avg_metrics['n_samples'] = len(all_metrics)
-        
-        return avg_metrics
-```
-
----
-
-## 10. Complete RAG + LINE Bot System
-
-### 10.1 Docker Compose
-
-```yaml
-# docker-compose.rag.yml
-version: '3.8'
-
-services:
-  # Qdrant Vector Database
-  qdrant:
-    image: qdrant/qdrant:v1.6.4
-    ports:
-      - "6333:6333"
-      - "6334:6334"
-    volumes:
-      - qdrant-data:/qdrant/storage
-    environment:
-      QDRANT__SERVICE__HTTP_PORT: 6333
-      QDRANT__SERVICE__GRPC_PORT: 6334
-
-  # RAG API Server
-  rag-api:
-    build: ./services/rag-api
-    ports:
-      - "8000:8000"
-    environment:
-      QDRANT_URL: http://qdrant:6333
-      EMBEDDING_MODEL: intfloat/multilingual-e5-base
-      LLM_PROVIDER: openai
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      LLM_MODEL: gpt-4o-mini
-    depends_on:
-      - qdrant
-    volumes:
-      - ./data/knowledge:/app/data/knowledge
-    deploy:
-      replicas: 2
-      resources:
-        limits:
-          memory: 4G
-
-  # LINE Bot Webhook
-  linebot:
-    build: ./services/linebot
-    ports:
-      - "3000:3000"
-    environment:
-      LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN}
-      LINE_CHANNEL_SECRET: ${LINE_CHANNEL_SECRET}
-      RAG_API_URL: http://rag-api:8000
-      REDIS_URL: redis://redis:6379
-    depends_on:
-      - rag-api
-      - redis
-
-  # Redis for session management
-  redis:
-    image: redis:7-alpine
-    volumes:
-      - redis-data:/data
-
-  # MLflow for experiment tracking
-  mlflow:
-    image: ghcr.io/mlflow/mlflow:v2.8.0
-    ports:
-      - "5000:5000"
-    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow.db
-    volumes:
-      - mlflow-data:/mlflow
-
-volumes:
-  qdrant-data:
-  redis-data:
-  mlflow-data:
-```
-
-### 10.2 Knowledge Base Ingestion Script
-
-```python
-# scripts/ingest_knowledge.py
-"""
-Ingest knowledge base จากหลาย sources:
-- PDF files
-- Website pages
-- CSV/Excel
-- Database
-"""
-
-import os
-import glob
-from pathlib import Path
-from rag_system import LineRAGSystem
-from sentence_transformers import SentenceTransformer
-
-def load_pdf_documents(pdf_dir):
-    """Load documents จาก PDF files"""
-    from pypdf import PdfReader
-    
-    documents = []
-    pdf_files = glob.glob(f"{pdf_dir}/**/*.pdf", recursive=True)
-    
-    for pdf_path in pdf_files:
-        reader = PdfReader(pdf_path)
-        filename = Path(pdf_path).stem
-        
-        for page_num, page in enumerate(reader.pages):
-            text = page.extract_text()
-            if len(text.strip()) > 50:  # Skip empty pages
-                documents.append({
-                    'content': text,
-                    'source': pdf_path,
-                    'category': 'document',
-                    'title': f"{filename} - Page {page_num + 1}",
-                    'metadata': {'page': page_num + 1, 'filename': filename},
-                })
-    
-    return documents
-
-def load_website_content(urls):
-    """Scrape content จาก website"""
-    import requests
-    from bs4 import BeautifulSoup
-    
-    documents = []
-    
-    for url in urls:
-        try:
-            response = requests.get(url, timeout=10)
-            soup = BeautifulSoup(response.content, 'html.parser')
-            
-            # Remove scripts and styles
-            for element in soup(['script', 'style', 'nav', 'footer']):
-                element.decompose()
-            
-            text = soup.get_text(separator=' ', strip=True)
-            
-            if len(text) > 100:
-                documents.append({
-                    'content': text[:2000],  # Limit size
-                    'source': url,
-                    'category': 'website',
-                    'title': soup.title.string if soup.title else url,
-                })
-        except Exception as e:
-            print(f"Error loading {url}: {e}")
-    
-    return documents
-
-def load_faq_from_csv(csv_path):
-    """Load FAQ จาก CSV"""
-    import pandas as pd
-    
-    df = pd.read_csv(csv_path)
-    documents = []
-    
-    for _, row in df.iterrows():
-        documents.append({
-            'content': f"คำถาม: {row['question']}\nคำตอบ: {row['answer']}",
-            'source': csv_path,
-            'category': 'faq',
-            'title': row['question'],
-            'metadata': {'question': row['question']},
-        })
-    
-    return documents
-
-def main():
-    config = {
-        'vector_store': 'qdrant',
-        'qdrant_url': os.environ.get('QDRANT_URL', 'http://localhost:6333'),
-        'embedding_model': 'intfloat/multilingual-e5-base',
-        'llm_provider': 'openai',
-        'openai_api_key': os.environ['OPENAI_API_KEY'],
-        'llm_model': 'gpt-4o-mini',
-    }
-    
-    rag = LineRAGSystem(config)
-    rag.setup()
-    
-    all_documents = []
-    
-    # Load from PDFs
-    if os.path.exists('./data/knowledge/pdfs'):
-        pdf_docs = load_pdf_documents('./data/knowledge/pdfs')
-        all_documents.extend(pdf_docs)
-        print(f"Loaded {len(pdf_docs)} PDF documents")
-    
-    # Load FAQ
-    if os.path.exists('./data/knowledge/faq.csv'):
-        faq_docs = load_faq_from_csv('./data/knowledge/faq.csv')
-        all_documents.extend(faq_docs)
-        print(f"Loaded {len(faq_docs)} FAQ items")
-    
-    # Load website content
-    website_urls = [
-        'https://yourshop.com/faq',
-        'https://yourshop.com/about',
-        'https://yourshop.com/shipping',
-    ]
-    web_docs = load_website_content(website_urls)
-    all_documents.extend(web_docs)
-    print(f"Loaded {len(web_docs)} web pages")
-    
-    # Add all documents to knowledge base
-    print(f"\nTotal documents: {len(all_documents)}")
-    print("Adding to knowledge base...")
-    rag.add_documents(all_documents)
-    
-    print("Knowledge base ingestion complete!")
-    
-    # Test retrieval
-    test_query = "ส่งสินค้าใช้เวลากี่วัน"
-    results = rag.retrieve(test_query, n_results=3)
-    
-    print(f"\nTest query: {test_query}")
-    for r in results:
-        print(f"  Score: {r['relevance_score']:.3f} | {r['content'][:100]}...")
-
-if __name__ == '__main__':
-    main()
-```
-
----
-
-## 11. Monitoring AI Models
-
-```python
-# src/monitoring/ai_monitor.py
-
-class AIModelMonitor:
-    """Monitor AI model performance ใน production"""
-    
-    def __init__(self, metrics_client):
-        self.metrics = metrics_client
-    
-    def track_inference(self, model_name, latency_ms, tokens_used, success):
-        """Track inference metrics"""
-        self.metrics.histogram(
-            'ai_inference_latency_ms',
-            latency_ms,
-            tags={'model': model_name}
-        )
-        
-        self.metrics.counter(
-            'ai_inference_total',
-            1,
-            tags={'model': model_name, 'success': str(success)}
-        )
-        
-        if tokens_used:
-            self.metrics.histogram(
-                'ai_tokens_used',
-                tokens_used,
-                tags={'model': model_name}
-            )
-    
-    def track_rag_metrics(self, query, n_retrieved, avg_relevance_score):
-        """Track RAG-specific metrics"""
-        self.metrics.histogram('rag_documents_retrieved', n_retrieved)
-        self.metrics.histogram('rag_avg_relevance_score', avg_relevance_score)
-        
-        # Alert if relevance too low
-        if avg_relevance_score < 0.5:
-            self.log_low_relevance_query(query, avg_relevance_score)
-    
-    def log_low_relevance_query(self, query, score):
-        """Log queries ที่ไม่พบข้อมูลที่ relevant"""
-        import logging
-        logging.warning(f"Low relevance query (score={score:.2f}): {query}")
-        # ส่งไป review เพื่อเพิ่ม knowledge base
-```
-
----
-
-## สรุป
-
-Custom AI Models สำหรับ LINE Bot มีหลายระดับ:
-
-1. **Intent Classification (WangchanBERTa)**: ราคาถูก fast inference รองรับภาษาไทย
-2. **Fine-tuned LLM (Typhoon)**: ตอบสนองได้ตรง domain ควบคุมได้
-3. **RAG System**: Balance ระหว่าง accuracy, cost, และ maintainability
-4. **RLHF**: ปรับปรุง model จาก user feedback อย่างต่อเนื่อง
-
-สำหรับ LINE OA ทั่วไป แนะนำเริ่มจาก RAG + GPT-4o-mini แล้วค่อยๆ migrate ไป custom model เมื่อ volume สูงขึ้น
-
-```
-Migration Path:
-Phase 1: GPT-4o-mini + RAG        → Fast, accurate, ~$765/mo
-Phase 2: Fine-tuned Typhoon + RAG → Cost ↓ 50%, accuracy ↑ for Thai
-Phase 3: Full local deployment     → Cost ↓ 70%, full data privacy
-```
-
----
-
-*จบ Part 85: Custom AI Models สำหรับ LINE Bots*
-
----
-
-## 12. Production Deployment Pipeline
-
-### 12.1 Model Registry API
-
-```python
-# services/model-registry/src/registry.py
-from fastapi import FastAPI, HTTPException, UploadFile
-from pydantic import BaseModel
-import mlflow
-from mlflow.tracking import MlflowClient
-import json
-
-app = FastAPI(title="LINE Bot Model Registry")
-client = MlflowClient()
-
-class ModelDeployRequest(BaseModel):
-    model_name: str
-    version: int
-    environment: str  # staging, production
-    
-class InferenceRequest(BaseModel):
-    model_name: str
-    inputs: dict
-    user_id: str
-
-@app.post("/models/deploy")
-async def deploy_model(request: ModelDeployRequest):
-    """Deploy model ไปยัง environment"""
-    
-    try:
-        if request.environment == 'production':
-            # Archive existing production model
-            client.transition_model_version_stage(
-                name=request.model_name,
-                version=request.version,
-                stage="Production",
-                archive_existing_versions=True
-            )
-        elif request.environment == 'staging':
-            client.transition_model_version_stage(
-                name=request.model_name,
-                version=request.version,
-                stage="Staging"
-            )
-        
-        return {
-            "status": "success",
-            "model_name": request.model_name,
-            "version": request.version,
-            "environment": request.environment
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/models/{model_name}/production")
-async def get_production_model_info(model_name: str):
-    """ดึงข้อมูล production model"""
-    
-    versions = client.get_latest_versions(model_name, stages=["Production"])
-    
-    if not versions:
-        raise HTTPException(status_code=404, detail=f"No production model found: {model_name}")
-    
-    version = versions[0]
-    
-    return {
-        "model_name": model_name,
-        "version": version.version,
-        "run_id": version.run_id,
-        "created_at": version.creation_timestamp,
-        "metrics": client.get_run(version.run_id).data.metrics,
-        "params": client.get_run(version.run_id).data.params,
-    }
-
-@app.post("/models/predict")
-async def predict(request: InferenceRequest):
-    """Real-time prediction endpoint"""
-    
-    import time
-    start = time.time()
-    
-    try:
-        # Load model from registry
-        model = mlflow.pyfunc.load_model(
-            f"models:/{request.model_name}/Production"
-        )
-        
-        # Predict
-        result = model.predict(request.inputs)
-        duration_ms = (time.time() - start) * 1000
-        
-        return {
-            "prediction": result,
-            "model_name": request.model_name,
-            "duration_ms": duration_ms,
-            "user_id": request.user_id
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8080)
-```
-
-### 12.2 Inference Service with Caching
-
-```python
-# services/ai-inference/src/inference_service.py
-import asyncio
-import time
-import redis
-import json
-import hashlib
-from typing import Optional, Dict, Any
-
-class InferenceService:
-    """
-    High-performance inference service with caching
-    """
-    
-    def __init__(self, model_registry, redis_client, config):
-        self.registry = model_registry
-        self.redis = redis_client
-        self.config = config
-        self.models = {}  # In-memory model cache
-        
-        # Cache TTLs
-        self.cache_ttls = {
-            'rag_response': 300,      # 5 minutes (conversation varies)
-            'intent': 60,             # 1 minute
-            'recommendation': 3600,   # 1 hour
-            'churn_prediction': 86400, # 24 hours
-        }
-    
-    async def predict_intent(self, text: str, user_id: str) -> Dict:
-        """ทำนาย intent พร้อม caching"""
-        
-        cache_key = f"intent:{hashlib.md5(text.encode()).hexdigest()}"
-        
-        # Check cache
-        cached = await self.get_cache(cache_key)
-        if cached:
-            return {**cached, 'from_cache': True}
-        
-        start = time.time()
-        
-        model = await self.get_model('ThaiIntentClassifier')
-        intent, confidence = model.predict(text)
-        
-        result = {
-            'intent': intent,
-            'confidence': float(confidence),
-            'latency_ms': (time.time() - start) * 1000,
-            'from_cache': False,
-        }
-        
-        # Cache the result
-        await self.set_cache(cache_key, result, self.cache_ttls['intent'])
-        
-        return result
-    
-    async def get_recommendations(self, user_id: str, n: int = 5) -> Dict:
-        """Get personalized recommendations"""
-        
-        cache_key = f"recs:{user_id}:{n}"
-        
-        cached = await self.get_cache(cache_key)
-        if cached:
-            return {**cached, 'from_cache': True}
-        
-        model = await self.get_model('Recommender')
-        recommendations = model.get_recommendations(user_id, n)
-        
-        result = {
-            'user_id': user_id,
-            'recommendations': recommendations,
-            'from_cache': False,
-        }
-        
-        await self.set_cache(cache_key, result, self.cache_ttls['recommendation'])
-        
-        return result
-    
-    async def generate_rag_response(self, query: str, user_id: str, 
-                                     chat_history: list = None) -> Dict:
-        """Generate RAG response (not cached due to conversation context)"""
-        
-        start = time.time()
-        
-        rag_system = await self.get_model('RAGSystem')
-        response = rag_system.generate_response(query, chat_history)
-        
-        return {
-            'response': response,
-            'user_id': user_id,
-            'latency_ms': (time.time() - start) * 1000,
-        }
-    
-    async def get_model(self, model_name: str):
-        """Load model with in-memory caching"""
-        
-        if model_name not in self.models:
-            self.models[model_name] = await self.load_model(model_name)
-        
-        return self.models[model_name]
-    
-    async def load_model(self, model_name: str):
-        """Load model from registry"""
-        import mlflow.pyfunc
-        
-        model_uri = f"models:/{model_name}/Production"
-        return mlflow.pyfunc.load_model(model_uri)
-    
-    async def get_cache(self, key: str) -> Optional[Dict]:
-        try:
-            value = self.redis.get(key)
-            if value:
-                return json.loads(value)
-        except Exception:
-            pass
-        return None
-    
-    async def set_cache(self, key: str, value: Dict, ttl: int):
-        try:
-            self.redis.setex(key, ttl, json.dumps(value))
-        except Exception as e:
-            print(f"Cache set failed: {e}")
-```
-
----
-
-## 13. Training Data Pipeline
-
-### 13.1 Conversation Data Collector
-
-```python
-# ml/data/conversation_collector.py
-"""
-เก็บ conversation data จาก LINE Bot สำหรับ training
-"""
-
-import json
-import asyncio
-from datetime import datetime
-from typing import List, Dict
-
-class ConversationDataCollector:
-    """
-    เก็บ conversations ที่มีคุณภาพสำหรับ fine-tuning
-    """
-    
-    def __init__(self, db, storage_path='./data/conversations'):
-        self.db = db
-        self.storage_path = storage_path
-        self.quality_threshold = 4.0  # Rating 4/5 ขึ้นไป
-    
-    async def collect_training_conversations(self, 
-                                              min_turns: int = 3,
-                                              min_rating: float = 4.0) -> List[Dict]:
-        """
-        ดึง conversations ที่ผ่าน quality filter
-        """
-        result = await self.db.query("""
+class TrainingDataPreparer:
+    def __init__(self, db_config: dict):
+        self.db = mysql.connector.connect(**db_config)
+        self.cursor = self.db.cursor(dictionary=True)
+    
+    def extract_conversations(self, days_back: int = 90) -> List[Dict]:
+        """ดึงการสนทนาจาก Database"""
+        start_date = datetime.now() - timedelta(days=days_back)
+        
+        self.cursor.execute("""
             SELECT 
-                c.session_id,
-                c.user_id,
-                json_agg(
-                    json_build_object(
-                        'role', CASE WHEN m.direction = 'inbound' THEN 'user' ELSE 'assistant' END,
-                        'content', m.message_content->>'text',
-                        'timestamp', m.created_at
-                    ) ORDER BY m.created_at
-                ) as turns,
-                avg(f.rating) as avg_rating,
-                count(m.id) as turn_count
-            FROM chat_sessions c
-            JOIN messages m ON c.id = m.session_id
-            LEFT JOIN conversation_feedback f ON c.session_id = f.session_id
-            WHERE m.message_content->>'text' IS NOT NULL
-            GROUP BY c.session_id, c.user_id
-            HAVING count(m.id) >= $1
-            AND (avg(f.rating) >= $2 OR avg(f.rating) IS NULL)
-        """, [min_turns, min_rating])
+                a.contact_id,
+                a.direction,
+                a.body,
+                a.occurred_at,
+                c.display_name
+            FROM activities a
+            JOIN contacts c ON a.contact_id = c.id
+            WHERE 
+                a.type = 'line_message'
+                AND a.occurred_at >= %s
+                AND a.body IS NOT NULL
+                AND LENGTH(a.body) > 3
+            ORDER BY a.contact_id, a.occurred_at ASC
+        """, (start_date,))
+        
+        return self.cursor.fetchall()
+    
+    def group_into_conversations(self, messages: List[Dict], 
+                                  session_timeout_minutes: int = 30) -> List[List[Dict]]:
+        """จัดกลุ่มข้อความเป็น Conversations"""
+        if not messages:
+            return []
         
         conversations = []
+        current_conv = [messages[0]]
         
-        for row in result:
-            # Filter out personal information
-            turns = self.anonymize_turns(row['turns'])
+        for i in range(1, len(messages)):
+            curr_msg = messages[i]
+            prev_msg = messages[i-1]
             
-            conversations.append({
-                'session_id': row['session_id'],
-                'turns': turns,
-                'avg_rating': row['avg_rating'],
-                'turn_count': row['turn_count'],
-            })
+            # ตรวจสอบว่าเป็น Contact เดิมและอยู่ใน Session เดียวกัน
+            time_diff = (curr_msg['occurred_at'] - prev_msg['occurred_at']).total_seconds() / 60
+            same_contact = curr_msg['contact_id'] == prev_msg['contact_id']
+            
+            if same_contact and time_diff <= session_timeout_minutes:
+                current_conv.append(curr_msg)
+            else:
+                if len(current_conv) >= 2:  # ต้องมีอย่างน้อย 2 ข้อความ
+                    conversations.append(current_conv)
+                current_conv = [curr_msg]
+        
+        if len(current_conv) >= 2:
+            conversations.append(current_conv)
         
         return conversations
     
-    def anonymize_turns(self, turns: List[Dict]) -> List[Dict]:
-        """Remove PII จาก conversation turns"""
-        import re
+    def create_qa_pairs(self, conversations: List[List[Dict]]) -> List[Dict]:
+        """สร้าง Q&A Pairs จากการสนทนา"""
+        qa_pairs = []
         
-        anonymized = []
-        for turn in turns:
-            content = turn['content']
-            if content:
-                # Remove phone numbers
-                content = re.sub(r'\b0[0-9]{8,9}\b', '[PHONE]', content)
-                # Remove email
-                content = re.sub(r'\S+@\S+\.\S+', '[EMAIL]', content)
-                # Remove Thai ID card
-                content = re.sub(r'\b[0-9]{13}\b', '[ID_CARD]', content)
+        for conv in conversations:
+            for i in range(len(conv) - 1):
+                msg = conv[i]
+                next_msg = conv[i + 1]
                 
-                anonymized.append({
-                    'role': turn['role'],
-                    'content': content,
-                })
+                # ต้องการ: คำถามจาก User -> คำตอบจาก Bot
+                if msg['direction'] == 'inbound' and next_msg['direction'] == 'outbound':
+                    # กรองข้อความที่ไม่ดี
+                    if self.is_valid_pair(msg['body'], next_msg['body']):
+                        qa_pairs.append({
+                            'question': self.clean_text(msg['body']),
+                            'answer': self.clean_text(next_msg['body']),
+                            'context': self.get_conversation_context(conv[:i])
+                        })
         
-        return anonymized
+        return qa_pairs
     
-    def export_to_jsonl(self, conversations: List[Dict], output_path: str):
-        """Export conversations สำหรับ fine-tuning"""
+    def is_valid_pair(self, question: str, answer: str) -> bool:
+        """ตรวจสอบความถูกต้องของ Q&A Pair"""
+        # ตรวจสอบความยาว
+        if len(question) < 3 or len(answer) < 5:
+            return False
         
-        with open(output_path, 'w', encoding='utf-8') as f:
-            for conv in conversations:
-                # Format for instruction tuning
-                training_example = {
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": "คุณคือผู้ช่วย AI ของร้านค้า ตอบคำถามลูกค้าด้วยภาษาไทยที่สุภาพ"
-                        }
-                    ] + conv['turns']
-                }
-                f.write(json.dumps(training_example, ensure_ascii=False) + '\n')
+        # กรองข้อความที่เป็นแค่ Sticker/Image
+        invalid_patterns = [
+            r'^\[sticker\]$',
+            r'^\[image\]$',
+            r'^\[video\]$',
+            r'^(สวัสดี|hello|hi|ok|โอเค|ได้เลย|ขอบคุณ)$'
+        ]
         
-        print(f"Exported {len(conversations)} conversations to {output_path}")
-```
-
----
-
-## 14. Thai Language Specific Considerations
-
-### 14.1 Thai Text Processing
-
-```python
-# ml/thai_nlp/thai_processor.py
-"""
-Thai text preprocessing สำหรับ LINE Bot NLP
-"""
-
-import re
-from typing import List
-
-class ThaiTextProcessor:
-    """
-    Preprocess Thai text สำหรับ ML models
-    """
-    
-    def __init__(self):
-        # ลองใช้ pythainlp ถ้ามี
-        try:
-            from pythainlp.tokenize import word_tokenize
-            from pythainlp.corpus.common import thai_stopwords
-            self.tokenizer = word_tokenize
-            self.stop_words = set(thai_stopwords())
-            self.use_pythainlp = True
-        except ImportError:
-            print("pythainlp not available, using basic tokenization")
-            self.use_pythainlp = False
+        for pattern in invalid_patterns:
+            if re.match(pattern, question.lower()) or re.match(pattern, answer.lower()):
+                return False
+        
+        return True
     
     def clean_text(self, text: str) -> str:
-        """Clean Thai text"""
-        # Remove HTML
-        text = re.sub(r'<[^>]+>', '', text)
-        # Remove URLs
-        text = re.sub(r'https?://\S+', '', text)
-        # Remove phone numbers
-        text = re.sub(r'\b0[0-9]{8,9}\b', '', text)
-        # Remove excessive whitespace
+        """ทำความสะอาดข้อความ"""
+        # ลบ Whitespace ซ้ำ
         text = re.sub(r'\s+', ' ', text).strip()
-        # Remove emoji (optional)
-        # text = text.encode('ascii', 'ignore').decode('ascii')
+        # ลบ URL
+        text = re.sub(r'https?://\S+', '[URL]', text)
+        # ลบ Phone numbers
+        text = re.sub(r'(?:\+66|0)[0-9]{8,9}', '[PHONE]', text)
         return text
     
-    def tokenize(self, text: str) -> List[str]:
-        """Tokenize Thai text"""
-        if self.use_pythainlp:
-            return self.tokenizer(text, engine='newmm')
-        else:
-            # Fallback: character-based
-            return list(text)
+    def get_conversation_context(self, previous_messages: List[Dict]) -> str:
+        """ดึง Context จากข้อความก่อนหน้า"""
+        if not previous_messages:
+            return ""
+        
+        context_msgs = previous_messages[-3:]  # เอาแค่ 3 ข้อความล่าสุด
+        context = "\n".join([
+            f"{'User' if m['direction'] == 'inbound' else 'Bot'}: {m['body']}"
+            for m in context_msgs
+        ])
+        return context
     
-    def remove_stopwords(self, tokens: List[str]) -> List[str]:
-        """Remove Thai stopwords"""
-        if hasattr(self, 'stop_words'):
-            return [t for t in tokens if t not in self.stop_words and t.strip()]
-        return tokens
+    def export_for_fine_tuning(self, qa_pairs: List[Dict], 
+                                output_file: str = 'training_data.jsonl',
+                                format: str = 'openai') -> int:
+        """Export ข้อมูลในรูปแบบที่ใช้ Fine-tuning"""
+        
+        with open(output_file, 'w', encoding='utf-8') as f:
+            for pair in qa_pairs:
+                if format == 'openai':
+                    # OpenAI Fine-tuning Format
+                    record = {
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "คุณเป็น AI Assistant สำหรับ LINE Bot ของร้านเรา คุณตอบคำถามเกี่ยวกับสินค้าและบริการเป็นภาษาไทย"
+                            }
+                        ]
+                    }
+                    
+                    # เพิ่ม Context ถ้ามี
+                    if pair['context']:
+                        record['messages'].append({
+                            "role": "user",
+                            "content": f"บริบทการสนทนาก่อนหน้า:\n{pair['context']}"
+                        })
+                        record['messages'].append({
+                            "role": "assistant",
+                            "content": "รับทราบครับ"
+                        })
+                    
+                    record['messages'].extend([
+                        {"role": "user", "content": pair['question']},
+                        {"role": "assistant", "content": pair['answer']}
+                    ])
+                    
+                elif format == 'alpaca':
+                    # Alpaca Format สำหรับ Local Models
+                    record = {
+                        "instruction": "ตอบคำถามของลูกค้าในฐานะ Customer Service ของร้านค้า",
+                        "input": pair['question'],
+                        "output": pair['answer']
+                    }
+                
+                f.write(json.dumps(record, ensure_ascii=False) + '\n')
+        
+        return len(qa_pairs)
     
-    def normalize_thai(self, text: str) -> str:
-        """Normalize Thai characters"""
-        # แก้ไข common typos ในภาษาไทย
-        corrections = {
-            'กรุณ': 'กรุณา',
-            'ขอบคุณมากๆ': 'ขอบคุณมาก',
-            'โอเค': 'โอเค',
-            'โอเคๆ': 'โอเค',
+    def run(self):
+        """รัน Pipeline ทั้งหมด"""
+        print("กำลังดึงข้อมูลการสนทนา...")
+        messages = self.extract_conversations(days_back=90)
+        print(f"ดึงข้อมูลได้ {len(messages)} ข้อความ")
+        
+        print("กำลังจัดกลุ่มเป็น Conversations...")
+        conversations = self.group_into_conversations(messages)
+        print(f"จัดกลุ่มได้ {len(conversations)} conversations")
+        
+        print("กำลังสร้าง Q&A Pairs...")
+        qa_pairs = self.create_qa_pairs(conversations)
+        print(f"สร้างได้ {len(qa_pairs)} Q&A pairs")
+        
+        print("กำลัง Export ข้อมูล...")
+        count = self.export_for_fine_tuning(
+            qa_pairs, 
+            'training_data.jsonl',
+            format='openai'
+        )
+        print(f"Export สำเร็จ: {count} records")
+        
+        # สถิติ
+        df = pd.DataFrame(qa_pairs)
+        print("\nสถิติข้อมูล:")
+        print(f"  ความยาวเฉลี่ยคำถาม: {df['question'].str.len().mean():.0f} ตัวอักษร")
+        print(f"  ความยาวเฉลี่ยคำตอบ: {df['answer'].str.len().mean():.0f} ตัวอักษร")
+
+
+# รัน Script
+if __name__ == '__main__':
+    db_config = {
+        'host': 'localhost',
+        'user': 'root',
+        'password': 'your_password',
+        'database': 'line_crm'
+    }
+    
+    preparer = TrainingDataPreparer(db_config)
+    preparer.run()
+```
+
+## 3. RAG (Retrieval Augmented Generation) สำหรับ LINE Bots
+
+```javascript
+// src/ai/rag-system.js
+const { OpenAI } = require('openai');
+const { Pinecone } = require('@pinecone-database/pinecone');
+const db = require('../database/mysql');
+
+class RAGSystem {
+    constructor() {
+        this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        this.pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
+        this.index = this.pinecone.index(process.env.PINECONE_INDEX_NAME || 'line-bot-knowledge');
+        
+        this.embeddingModel = 'text-embedding-3-small';
+        this.chatModel = process.env.CHAT_MODEL || 'gpt-4o-mini';
+        this.maxContextLength = 3000;
+        this.topK = 5;
+    }
+
+    // สร้าง Embedding สำหรับข้อความ
+    async createEmbedding(text) {
+        const response = await this.openai.embeddings.create({
+            model: this.embeddingModel,
+            input: text.slice(0, 8000) // จำกัดความยาว
+        });
+        
+        return response.data[0].embedding;
+    }
+
+    // ค้นหา Context ที่เกี่ยวข้อง
+    async retrieveContext(query, topK = null) {
+        const queryEmbedding = await this.createEmbedding(query);
+        
+        const results = await this.index.query({
+            vector: queryEmbedding,
+            topK: topK || this.topK,
+            includeMetadata: true
+        });
+        
+        return results.matches
+            .filter(m => m.score >= 0.7) // กรอง Relevance Score
+            .map(m => ({
+                content: m.metadata.content,
+                source: m.metadata.source,
+                title: m.metadata.title,
+                score: m.score
+            }));
+    }
+
+    // สร้าง Response โดยใช้ RAG
+    async generateResponse(userMessage, conversationHistory = [], userProfile = {}) {
+        try {
+            // 1. ดึง Context ที่เกี่ยวข้อง
+            const contexts = await this.retrieveContext(userMessage);
+            
+            // 2. สร้าง Context String
+            let contextStr = '';
+            if (contexts.length > 0) {
+                contextStr = "ข้อมูลที่เกี่ยวข้องจากฐานความรู้:\n\n";
+                contexts.forEach((ctx, i) => {
+                    contextStr += `[${i + 1}] ${ctx.title || 'ข้อมูล'}\n${ctx.content}\n\n`;
+                });
+            }
+            
+            // 3. สร้าง System Prompt
+            const systemPrompt = this.buildSystemPrompt(userProfile, contextStr);
+            
+            // 4. สร้าง Messages Array
+            const messages = [
+                { role: 'system', content: systemPrompt },
+                ...conversationHistory.slice(-6), // เอาแค่ 3 รอบล่าสุด
+                { role: 'user', content: userMessage }
+            ];
+            
+            // 5. เรียก LLM
+            const response = await this.openai.chat.completions.create({
+                model: this.chatModel,
+                messages,
+                max_tokens: 500,
+                temperature: 0.7,
+                stream: false
+            });
+            
+            const answer = response.choices[0].message.content;
+            
+            // 6. บันทึก Usage สำหรับ Cost Tracking
+            await this.trackUsage(response.usage);
+            
+            return {
+                answer,
+                contexts: contexts.length > 0 ? contexts : null,
+                model: this.chatModel,
+                tokens: response.usage
+            };
+        } catch (error) {
+            console.error('RAG generation error:', error);
+            throw error;
+        }
+    }
+
+    // สร้าง System Prompt
+    buildSystemPrompt(userProfile, context) {
+        let prompt = `คุณเป็น AI Assistant ที่ช่วยเหลือลูกค้าของ ${process.env.COMPANY_NAME || 'บริษัทของเรา'}
+คุณต้องตอบคำถามเป็นภาษาไทยอย่างสุภาพและเป็นมืออาชีพ
+
+กฎการตอบ:
+1. ตอบตรงประเด็น กระชับ ไม่เกิน 5 ประโยค
+2. ใช้ภาษาไทยที่เป็นทางการแต่เป็นกันเอง
+3. ถ้าไม่รู้คำตอบ ให้บอกว่าจะส่งต่อให้เจ้าหน้าที่
+4. อย่าสร้างข้อมูลที่ไม่มีในฐานความรู้`;
+
+        if (userProfile.name) {
+            prompt += `\n\nข้อมูลลูกค้า: ชื่อ ${userProfile.name}`;
         }
         
-        for wrong, correct in corrections.items():
-            text = text.replace(wrong, correct)
-        
-        return text
-    
-    def detect_language(self, text: str) -> str:
-        """ตรวจสอบภาษาของข้อความ"""
-        thai_chars = sum(1 for c in text if '฀' <= c <= '๿')
-        english_chars = sum(1 for c in text if c.isalpha() and ord(c) < 128)
-        
-        if thai_chars > english_chars:
-            return 'th'
-        elif english_chars > 0:
-            return 'en'
-        return 'unknown'
-    
-    def preprocess_for_bert(self, text: str, max_length: int = 128) -> str:
-        """Preprocess สำหรับ BERT-based models"""
-        text = self.clean_text(text)
-        text = self.normalize_thai(text)
-        
-        # Truncate ถ้าข้อความยาวเกิน
-        if len(text) > max_length * 4:  # Rough char to token ratio for Thai
-            text = text[:max_length * 4]
-        
-        return text
-    
-    def extract_entities(self, text: str) -> dict:
-        """Extract entities จาก Thai text"""
-        entities = {
-            'phone_numbers': re.findall(r'\b0[0-9]{8,9}\b', text),
-            'prices': re.findall(r'฿[\d,]+|[\d,]+\s*บาท', text),
-            'order_ids': re.findall(r'(?:ออร์เดอร์|order|ORD)[-#]?\s*([A-Z0-9]+)', text, re.I),
-            'dates': re.findall(r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}', text),
+        if (context) {
+            prompt += `\n\n${context}`;
         }
-        return {k: v for k, v in entities.items() if v}
+        
+        return prompt;
+    }
+
+    // ติดตาม API Usage
+    async trackUsage(usage) {
+        await db.query(`
+            INSERT INTO ai_usage_log (
+                model, prompt_tokens, completion_tokens, total_tokens,
+                estimated_cost, occurred_at
+            ) VALUES (?, ?, ?, ?, ?, NOW())
+        `, [
+            this.chatModel,
+            usage.prompt_tokens,
+            usage.completion_tokens,
+            usage.total_tokens,
+            this.calculateCost(usage)
+        ]);
+    }
+
+    // คำนวณค่าใช้จ่าย
+    calculateCost(usage) {
+        const pricing = {
+            'gpt-4o': { input: 0.0025, output: 0.01 },
+            'gpt-4o-mini': { input: 0.00015, output: 0.0006 },
+            'gpt-3.5-turbo': { input: 0.0005, output: 0.0015 }
+        };
+        
+        const model = pricing[this.chatModel] || pricing['gpt-4o-mini'];
+        const cost = (usage.prompt_tokens / 1000 * model.input) + 
+                     (usage.completion_tokens / 1000 * model.output);
+        
+        return Math.round(cost * 10000) / 10000; // USD
+    }
+}
+
+module.exports = new RAGSystem();
 ```
 
----
+## 4. Vector Databases
 
-## สรุปสมบูรณ์ Custom AI Models
+### 4.1 Pinecone Integration
 
-Custom AI Models เป็นการลงทุนที่คุ้มค่าสำหรับ LINE Bot:
+```javascript
+// src/ai/knowledge-base/pinecone-manager.js
+const { Pinecone } = require('@pinecone-database/pinecone');
+const { OpenAI } = require('openai');
+const { v4: uuidv4 } = require('uuid');
+const db = require('../../database/mysql');
 
+class PineconeKnowledgeBase {
+    constructor() {
+        this.pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
+        this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        this.indexName = process.env.PINECONE_INDEX_NAME || 'line-bot-kb';
+    }
+
+    // สร้าง Index ใหม่
+    async createIndex() {
+        await this.pinecone.createIndex({
+            name: this.indexName,
+            dimension: 1536, // สำหรับ text-embedding-3-small
+            metric: 'cosine',
+            spec: {
+                serverless: {
+                    cloud: 'aws',
+                    region: 'us-east-1'
+                }
+            }
+        });
+        
+        console.log(`Created Pinecone index: ${this.indexName}`);
+    }
+
+    // เพิ่ม Documents เข้า Knowledge Base
+    async addDocuments(documents) {
+        const index = this.pinecone.index(this.indexName);
+        const batchSize = 100;
+        
+        for (let i = 0; i < documents.length; i += batchSize) {
+            const batch = documents.slice(i, i + batchSize);
+            
+            // สร้าง Embeddings
+            const embeddings = await this.createEmbeddings(batch.map(d => d.content));
+            
+            // เตรียม Vectors
+            const vectors = batch.map((doc, j) => ({
+                id: doc.id || uuidv4(),
+                values: embeddings[j],
+                metadata: {
+                    content: doc.content.slice(0, 1000), // จำกัดขนาด Metadata
+                    title: doc.title || '',
+                    source: doc.source || '',
+                    category: doc.category || '',
+                    created_at: new Date().toISOString()
+                }
+            }));
+            
+            // Upsert ไป Pinecone
+            await index.upsert(vectors);
+            
+            console.log(`Uploaded ${i + batch.length}/${documents.length} documents`);
+        }
+    }
+
+    // สร้าง Embeddings แบบ Batch
+    async createEmbeddings(texts) {
+        const response = await this.openai.embeddings.create({
+            model: 'text-embedding-3-small',
+            input: texts
+        });
+        
+        return response.data.map(d => d.embedding);
+    }
+
+    // โหลด FAQ จาก Database เข้า Pinecone
+    async loadFAQFromDatabase() {
+        const faqs = await db.query(`
+            SELECT 
+                id, question, answer, category,
+                CONCAT(question, '\n\nคำตอบ: ', answer) as content
+            FROM knowledge_base
+            WHERE is_active = 1
+            ORDER BY priority DESC
+        `);
+        
+        const documents = faqs.map(faq => ({
+            id: `faq-${faq.id}`,
+            content: faq.content,
+            title: faq.question,
+            source: 'faq',
+            category: faq.category
+        }));
+        
+        await this.addDocuments(documents);
+        console.log(`Loaded ${documents.length} FAQs into Pinecone`);
+    }
+
+    // โหลด Product Info
+    async loadProductsFromDatabase() {
+        const products = await db.query(`
+            SELECT 
+                id, name, description, price, category,
+                CONCAT(
+                    'สินค้า: ', name, '\n',
+                    'คำอธิบาย: ', COALESCE(description, ''), '\n',
+                    'ราคา: ', price, ' บาท\n',
+                    'หมวดหมู่: ', category
+                ) as content
+            FROM products
+            WHERE is_active = 1
+        `);
+        
+        const documents = products.map(p => ({
+            id: `product-${p.id}`,
+            content: p.content,
+            title: p.name,
+            source: 'product_catalog',
+            category: p.category
+        }));
+        
+        await this.addDocuments(documents);
+        console.log(`Loaded ${documents.length} products into Pinecone`);
+    }
+
+    // ลบ Document
+    async deleteDocument(docId) {
+        const index = this.pinecone.index(this.indexName);
+        await index.deleteOne(docId);
+    }
+
+    // ดึงสถิติ Index
+    async getIndexStats() {
+        const index = this.pinecone.index(this.indexName);
+        return await index.describeIndexStats();
+    }
+}
+
+module.exports = new PineconeKnowledgeBase();
 ```
-AI Strategy Roadmap:
 
-Month 1-3: Foundation
-├── RAG System + GPT-4o-mini
-├── Basic intent classification
-└── Cost: ~$1,000/month
+### 4.2 Chroma (Local Vector Database)
 
-Month 4-6: Optimization  
-├── Fine-tuned Thai intent model
-├── Spam detection
-└── Cost: ~$800/month (save 20%)
+```javascript
+// src/ai/knowledge-base/chroma-manager.js
+const { ChromaClient, OpenAIEmbeddingFunction } = require('chromadb');
 
-Month 7-12: Custom Models
-├── Fine-tuned Typhoon for domain
-├── Local vLLM deployment
-└── Cost: ~$2,500/month (but unlimited scale)
+class ChromaKnowledgeBase {
+    constructor() {
+        this.client = new ChromaClient({
+            path: process.env.CHROMA_URL || 'http://localhost:8000'
+        });
+        
+        this.embeddingFunction = new OpenAIEmbeddingFunction({
+            openai_api_key: process.env.OPENAI_API_KEY,
+            openai_model: 'text-embedding-3-small'
+        });
+        
+        this.collectionName = 'line_bot_knowledge';
+    }
 
-Year 2+: Full Custom
-├── Domain-specific LLM
-├── RLHF training loop
-└── Cost: ~$3,000/month (full privacy, max performance)
+    // สร้างหรือดึง Collection
+    async getOrCreateCollection() {
+        return await this.client.getOrCreateCollection({
+            name: this.collectionName,
+            embeddingFunction: this.embeddingFunction,
+            metadata: {
+                description: 'LINE Bot Knowledge Base',
+                'hnsw:space': 'cosine'
+            }
+        });
+    }
+
+    // เพิ่มเอกสาร
+    async addDocuments(documents) {
+        const collection = await this.getOrCreateCollection();
+        
+        const ids = documents.map((d, i) => d.id || `doc-${i}-${Date.now()}`);
+        const contents = documents.map(d => d.content);
+        const metadatas = documents.map(d => ({
+            title: d.title || '',
+            source: d.source || '',
+            category: d.category || ''
+        }));
+        
+        await collection.add({
+            ids,
+            documents: contents,
+            metadatas
+        });
+        
+        console.log(`Added ${documents.length} documents to Chroma`);
+    }
+
+    // ค้นหา
+    async search(query, nResults = 5) {
+        const collection = await this.getOrCreateCollection();
+        
+        const results = await collection.query({
+            queryTexts: [query],
+            nResults
+        });
+        
+        if (!results.documents[0].length) return [];
+        
+        return results.documents[0].map((doc, i) => ({
+            content: doc,
+            metadata: results.metadatas[0][i],
+            distance: results.distances[0][i]
+        }));
+    }
+
+    // ลบ Documents ทั้งหมด
+    async clearCollection() {
+        try {
+            await this.client.deleteCollection(this.collectionName);
+            console.log('Collection cleared');
+        } catch (e) {
+            console.log('Collection not found, creating new one');
+        }
+    }
+}
+
+module.exports = new ChromaKnowledgeBase();
 ```
 
-Key Takeaways:
-1. **เริ่มง่ายๆ**: RAG + API สำหรับ prototype
-2. **Scale smart**: Fine-tune เมื่อ volume สูงขึ้น
-3. **Thai language first**: เลือก model ที่รองรับภาษาไทยดี
-4. **Monitor ต่อเนื่อง**: Track model performance ใน production
-5. **Feedback loop**: เก็บ user feedback เพื่อปรับปรุง model
+## 5. Building Knowledge Base จาก FAQ
 
----
+```javascript
+// src/ai/knowledge-base/faq-loader.js
+const db = require('../../database/mysql');
+const pdfParse = require('pdf-parse');
+const fs = require('fs');
+const path = require('path');
+const mammoth = require('mammoth');
 
-*จบ Part 85: Custom AI Models สำหรับ LINE Bots (ฉบับสมบูรณ์)*
+class FAQLoader {
+    constructor(vectorDB) {
+        this.vectorDB = vectorDB; // Pinecone หรือ Chroma
+    }
+
+    // โหลด FAQ จาก Database
+    async loadFromDatabase() {
+        const faqs = await db.query(`
+            SELECT * FROM knowledge_base 
+            WHERE is_active = 1 
+            ORDER BY category, priority DESC
+        `);
+        
+        return faqs.map(faq => ({
+            id: `faq-${faq.id}`,
+            content: `คำถาม: ${faq.question}\n\nคำตอบ: ${faq.answer}`,
+            title: faq.question,
+            source: 'faq_database',
+            category: faq.category
+        }));
+    }
+
+    // โหลดจาก JSON File
+    async loadFromJSON(filePath) {
+        const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        
+        return data.map((item, i) => ({
+            id: item.id || `json-${i}`,
+            content: `คำถาม: ${item.question}\n\nคำตอบ: ${item.answer}`,
+            title: item.question,
+            source: 'json_file',
+            category: item.category || 'general'
+        }));
+    }
+
+    // โหลดจาก PDF
+    async loadFromPDF(filePath) {
+        const pdfBuffer = fs.readFileSync(filePath);
+        const pdfData = await pdfParse(pdfBuffer);
+        
+        // แบ่งเป็น Chunks
+        const chunks = this.splitIntoChunks(pdfData.text, 500, 50);
+        const fileName = path.basename(filePath, '.pdf');
+        
+        return chunks.map((chunk, i) => ({
+            id: `pdf-${fileName}-${i}`,
+            content: chunk,
+            title: `${fileName} - ส่วนที่ ${i + 1}`,
+            source: 'pdf',
+            category: 'document'
+        }));
+    }
+
+    // โหลดจาก Word Document
+    async loadFromWord(filePath) {
+        const result = await mammoth.extractRawText({ path: filePath });
+        const chunks = this.splitIntoChunks(result.value, 500, 50);
+        const fileName = path.basename(filePath, '.docx');
+        
+        return chunks.map((chunk, i) => ({
+            id: `docx-${fileName}-${i}`,
+            content: chunk,
+            title: `${fileName} - ส่วนที่ ${i + 1}`,
+            source: 'word_document',
+            category: 'document'
+        }));
+    }
+
+    // แบ่งข้อความเป็น Chunks
+    splitIntoChunks(text, chunkSize = 500, overlap = 50) {
+        const chunks = [];
+        const sentences = text.split(/(?<=[.!?。])\s+/);
+        
+        let currentChunk = '';
+        let currentSize = 0;
+        
+        for (const sentence of sentences) {
+            if (currentSize + sentence.length > chunkSize && currentChunk) {
+                chunks.push(currentChunk.trim());
+                
+                // Overlap: เริ่ม Chunk ใหม่ด้วยส่วนท้ายของ Chunk เก่า
+                const words = currentChunk.split(' ');
+                const overlapWords = words.slice(-Math.floor(overlap / 5));
+                currentChunk = overlapWords.join(' ') + ' ' + sentence;
+                currentSize = currentChunk.length;
+            } else {
+                currentChunk += (currentChunk ? ' ' : '') + sentence;
+                currentSize += sentence.length;
+            }
+        }
+        
+        if (currentChunk.trim()) {
+            chunks.push(currentChunk.trim());
+        }
+        
+        return chunks.filter(c => c.length > 20);
+    }
+
+    // โหลดทุกแหล่งข้อมูล
+    async loadAll(config = {}) {
+        const allDocuments = [];
+        
+        // จาก Database FAQ
+        const dbDocs = await this.loadFromDatabase();
+        allDocuments.push(...dbDocs);
+        console.log(`Loaded ${dbDocs.length} FAQ from database`);
+        
+        // จาก JSON Files
+        if (config.jsonFiles) {
+            for (const file of config.jsonFiles) {
+                const docs = await this.loadFromJSON(file);
+                allDocuments.push(...docs);
+                console.log(`Loaded ${docs.length} documents from ${file}`);
+            }
+        }
+        
+        // จาก PDFs
+        if (config.pdfFiles) {
+            for (const file of config.pdfFiles) {
+                const docs = await this.loadFromPDF(file);
+                allDocuments.push(...docs);
+                console.log(`Loaded ${docs.length} chunks from ${file}`);
+            }
+        }
+        
+        // อัพโหลดทั้งหมดไป Vector DB
+        await this.vectorDB.addDocuments(allDocuments);
+        console.log(`Total documents loaded: ${allDocuments.length}`);
+        
+        return allDocuments.length;
+    }
+}
+
+module.exports = FAQLoader;
+```
+
+## 6. Ollama สำหรับ Local Model Hosting
+
+```javascript
+// src/ai/ollama-client.js
+const axios = require('axios');
+
+class OllamaClient {
+    constructor() {
+        this.baseUrl = process.env.OLLAMA_URL || 'http://localhost:11434';
+        this.defaultModel = process.env.OLLAMA_MODEL || 'typhoon2-8b-instruct';
+        
+        this.client = axios.create({
+            baseURL: this.baseUrl,
+            timeout: 60000
+        });
+    }
+
+    // สร้าง Chat Completion
+    async chat(messages, options = {}) {
+        const response = await this.client.post('/api/chat', {
+            model: options.model || this.defaultModel,
+            messages,
+            stream: false,
+            options: {
+                temperature: options.temperature || 0.7,
+                top_p: options.topP || 0.9,
+                num_predict: options.maxTokens || 500,
+                num_ctx: 4096
+            }
+        });
+        
+        return {
+            content: response.data.message.content,
+            model: response.data.model,
+            tokens: {
+                prompt_tokens: response.data.prompt_eval_count,
+                completion_tokens: response.data.eval_count,
+                total_tokens: (response.data.prompt_eval_count || 0) + (response.data.eval_count || 0)
+            }
+        };
+    }
+
+    // สร้าง Embedding (สำหรับ RAG)
+    async createEmbedding(text) {
+        const response = await this.client.post('/api/embeddings', {
+            model: 'nomic-embed-text',
+            prompt: text
+        });
+        
+        return response.data.embedding;
+    }
+
+    // Stream Chat
+    async* chatStream(messages, options = {}) {
+        const response = await this.client.post('/api/chat', {
+            model: options.model || this.defaultModel,
+            messages,
+            stream: true,
+            options: {
+                temperature: options.temperature || 0.7,
+                num_predict: options.maxTokens || 500
+            }
+        }, {
+            responseType: 'stream'
+        });
+        
+        for await (const chunk of response.data) {
+            const lines = chunk.toString().split('\n').filter(l => l.trim());
+            for (const line of lines) {
+                try {
+                    const data = JSON.parse(line);
+                    if (data.message?.content) {
+                        yield data.message.content;
+                    }
+                } catch (e) { /* ข้ามบรรทัดที่ parse ไม่ได้ */ }
+            }
+        }
+    }
+
+    // ตรวจสอบ Models ที่มี
+    async listModels() {
+        const response = await this.client.get('/api/tags');
+        return response.data.models;
+    }
+
+    // Pull Model
+    async pullModel(modelName) {
+        console.log(`Pulling model: ${modelName}`);
+        const response = await this.client.post('/api/pull', {
+            name: modelName,
+            stream: true
+        }, {
+            responseType: 'stream',
+            timeout: 600000 // 10 นาที
+        });
+        
+        return new Promise((resolve, reject) => {
+            response.data.on('data', chunk => {
+                const data = JSON.parse(chunk.toString());
+                if (data.status) console.log(`  ${data.status}`);
+            });
+            response.data.on('end', resolve);
+            response.data.on('error', reject);
+        });
+    }
+
+    // Health Check
+    async isAvailable() {
+        try {
+            await this.client.get('/api/version', { timeout: 3000 });
+            return true;
+        } catch {
+            return false;
+        }
+    }
+}
+
+module.exports = new OllamaClient();
+```
+
+### Docker Compose สำหรับ Ollama
+
+```yaml
+# docker-compose.ollama.yml
+version: '3.8'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_ORIGINS=*
+    # GPU Support (uncomment ถ้ามี NVIDIA GPU)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    restart: unless-stopped
+    
+  # Web UI สำหรับ Ollama
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    depends_on:
+      - ollama
+    ports:
+      - "3000:8080"
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+    volumes:
+      - open_webui_data:/app/backend/data
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+  open_webui_data:
+```
+
+```bash
+# ติดตั้ง Ollama และ pull Models
+docker-compose -f docker-compose.ollama.yml up -d
+
+# Pull Thai-capable models
+docker exec ollama ollama pull typhoon2-8b-instruct
+docker exec ollama ollama pull llama3.1:8b
+docker exec ollama ollama pull nomic-embed-text  # สำหรับ Embeddings
+
+# ทดสอบ
+curl http://localhost:11434/api/generate -d '{
+  "model": "typhoon2-8b-instruct",
+  "prompt": "สวัสดี คุณช่วยอธิบายสินค้าของเราได้ไหม?"
+}'
+```
+
+## 7. OpenAI Assistant API Integration
+
+```javascript
+// src/ai/openai-assistant.js
+const { OpenAI } = require('openai');
+const db = require('../database/mysql');
+
+class OpenAIAssistantManager {
+    constructor() {
+        this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        this.assistantId = process.env.OPENAI_ASSISTANT_ID;
+        this.threadCache = new Map(); // lineUserId -> threadId
+    }
+
+    // สร้าง Assistant ใหม่
+    async createAssistant(config = {}) {
+        const assistant = await this.openai.beta.assistants.create({
+            name: config.name || 'LINE Bot Customer Service',
+            instructions: config.instructions || `
+คุณเป็น Customer Service Agent สำหรับ LINE Bot
+คุณตอบคำถามเป็นภาษาไทยอย่างสุภาพ
+ถ้าไม่รู้คำตอบ ให้บอกว่าจะส่งต่อให้เจ้าหน้าที่
+
+สิ่งที่คุณทำได้:
+1. ตอบคำถามเกี่ยวกับสินค้าและบริการ
+2. ช่วยเรื่องการสั่งซื้อ
+3. แก้ไขปัญหาเบื้องต้น
+            `.trim(),
+            model: config.model || 'gpt-4o-mini',
+            tools: [
+                { type: 'file_search' },
+                {
+                    type: 'function',
+                    function: {
+                        name: 'get_product_info',
+                        description: 'ดึงข้อมูลสินค้าจาก Database',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                product_name: {
+                                    type: 'string',
+                                    description: 'ชื่อสินค้าที่ต้องการค้นหา'
+                                }
+                            },
+                            required: ['product_name']
+                        }
+                    }
+                },
+                {
+                    type: 'function',
+                    function: {
+                        name: 'check_order_status',
+                        description: 'ตรวจสอบสถานะคำสั่งซื้อ',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                order_id: {
+                                    type: 'string',
+                                    description: 'หมายเลขคำสั่งซื้อ'
+                                }
+                            },
+                            required: ['order_id']
+                        }
+                    }
+                }
+            ]
+        });
+        
+        console.log(`Created assistant: ${assistant.id}`);
+        return assistant.id;
+    }
+
+    // ดึงหรือสร้าง Thread สำหรับ User
+    async getOrCreateThread(lineUserId) {
+        // ตรวจสอบ Cache ก่อน
+        if (this.threadCache.has(lineUserId)) {
+            return this.threadCache.get(lineUserId);
+        }
+        
+        // ตรวจสอบ Database
+        const stored = await db.query(
+            'SELECT thread_id FROM ai_threads WHERE line_user_id = ? AND is_active = 1',
+            [lineUserId]
+        );
+        
+        if (stored.length > 0) {
+            this.threadCache.set(lineUserId, stored[0].thread_id);
+            return stored[0].thread_id;
+        }
+        
+        // สร้าง Thread ใหม่
+        const thread = await this.openai.beta.threads.create();
+        
+        await db.query(`
+            INSERT INTO ai_threads (id, line_user_id, thread_id, is_active, created_at)
+            VALUES (UUID(), ?, ?, 1, NOW())
+            ON DUPLICATE KEY UPDATE thread_id = ?, is_active = 1, updated_at = NOW()
+        `, [lineUserId, thread.id, thread.id]);
+        
+        this.threadCache.set(lineUserId, thread.id);
+        return thread.id;
+    }
+
+    // ส่งข้อความและรับการตอบ
+    async chat(lineUserId, userMessage) {
+        const threadId = await this.getOrCreateThread(lineUserId);
+        
+        // เพิ่มข้อความของ User
+        await this.openai.beta.threads.messages.create(threadId, {
+            role: 'user',
+            content: userMessage
+        });
+        
+        // รัน Assistant
+        let run = await this.openai.beta.threads.runs.create(threadId, {
+            assistant_id: this.assistantId
+        });
+        
+        // รอจนกว่าจะเสร็จ
+        run = await this.waitForCompletion(threadId, run.id);
+        
+        // ดึงข้อความตอบกลับ
+        const messages = await this.openai.beta.threads.messages.list(threadId);
+        const lastMessage = messages.data.find(m => m.role === 'assistant');
+        
+        if (!lastMessage) throw new Error('No response from assistant');
+        
+        const responseText = lastMessage.content
+            .filter(c => c.type === 'text')
+            .map(c => c.text.value)
+            .join('\n');
+        
+        return {
+            response: responseText,
+            threadId,
+            runId: run.id,
+            usage: run.usage
+        };
+    }
+
+    // รอให้ Run เสร็จ
+    async waitForCompletion(threadId, runId, maxAttempts = 30) {
+        for (let i = 0; i < maxAttempts; i++) {
+            const run = await this.openai.beta.threads.runs.retrieve(threadId, runId);
+            
+            if (run.status === 'completed') return run;
+            
+            if (run.status === 'requires_action') {
+                // จัดการ Function Calls
+                return await this.handleFunctionCalls(threadId, run);
+            }
+            
+            if (['failed', 'cancelled', 'expired'].includes(run.status)) {
+                throw new Error(`Run ${run.status}: ${run.last_error?.message}`);
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        
+        throw new Error('Run timeout');
+    }
+
+    // จัดการ Function Calls จาก Assistant
+    async handleFunctionCalls(threadId, run) {
+        const toolCalls = run.required_action.submit_tool_outputs.tool_calls;
+        const toolOutputs = [];
+        
+        for (const toolCall of toolCalls) {
+            const args = JSON.parse(toolCall.function.arguments);
+            let output;
+            
+            switch (toolCall.function.name) {
+                case 'get_product_info':
+                    output = await this.getProductInfo(args.product_name);
+                    break;
+                case 'check_order_status':
+                    output = await this.checkOrderStatus(args.order_id);
+                    break;
+                default:
+                    output = { error: 'Function not found' };
+            }
+            
+            toolOutputs.push({
+                tool_call_id: toolCall.id,
+                output: JSON.stringify(output)
+            });
+        }
+        
+        // ส่ง Tool Outputs กลับ
+        const updatedRun = await this.openai.beta.threads.runs.submitToolOutputs(
+            threadId,
+            run.id,
+            { tool_outputs: toolOutputs }
+        );
+        
+        return await this.waitForCompletion(threadId, updatedRun.id);
+    }
+
+    // Function: ดึงข้อมูลสินค้า
+    async getProductInfo(productName) {
+        const products = await db.query(
+            'SELECT name, description, price, stock FROM products WHERE name LIKE ? LIMIT 5',
+            [`%${productName}%`]
+        );
+        
+        return products.length > 0 ? products : { message: 'ไม่พบสินค้าที่ค้นหา' };
+    }
+
+    // Function: ตรวจสอบ Order
+    async checkOrderStatus(orderId) {
+        const orders = await db.query(
+            'SELECT id, status, total_amount, created_at FROM orders WHERE id = ?',
+            [orderId]
+        );
+        
+        return orders.length > 0 ? orders[0] : { message: 'ไม่พบ Order นี้' };
+    }
+}
+
+module.exports = new OpenAIAssistantManager();
+```
+
+## 8. Model Evaluation และ Comparison
+
+```javascript
+// src/ai/model-evaluator.js
+const { OpenAI } = require('openai');
+const OllamaClient = require('./ollama-client');
+const RAGSystem = require('./rag-system');
+const db = require('../database/mysql');
+
+class ModelEvaluator {
+    constructor() {
+        this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        this.ollama = OllamaClient;
+        
+        // Test Questions (ภาษาไทย)
+        this.testQuestions = [
+            {
+                question: 'สินค้าของคุณมีการรับประกันนานเท่าไหร่?',
+                expectedKeywords: ['รับประกัน', 'ปี', 'เดือน'],
+                category: 'product_warranty'
+            },
+            {
+                question: 'ฉันต้องการยกเลิกคำสั่งซื้อ ทำอย่างไร?',
+                expectedKeywords: ['ยกเลิก', 'ติดต่อ', 'โทร', 'LINE'],
+                category: 'order_cancellation'
+            },
+            {
+                question: 'มีบริการส่งด่วนไหม? ค่าใช้จ่ายเท่าไหร่?',
+                expectedKeywords: ['ส่งด่วน', 'บาท', 'วัน', 'ชั่วโมง'],
+                category: 'shipping'
+            }
+        ];
+    }
+
+    // ทดสอบ Model หลายๆ ตัว
+    async compareModels(models = ['gpt-4o-mini', 'gpt-3.5-turbo', 'ollama:typhoon2-8b-instruct']) {
+        const results = {};
+        
+        for (const model of models) {
+            console.log(`\nEvaluating ${model}...`);
+            results[model] = await this.evaluateModel(model);
+        }
+        
+        // สรุปผล
+        this.printComparisonTable(results);
+        
+        // บันทึกผลใน Database
+        await this.saveEvaluationResults(results);
+        
+        return results;
+    }
+
+    // ประเมิน Model
+    async evaluateModel(modelName) {
+        const metrics = {
+            model: modelName,
+            totalQuestions: this.testQuestions.length,
+            correctAnswers: 0,
+            avgResponseTime: 0,
+            avgTokens: 0,
+            totalCost: 0,
+            responses: []
+        };
+        
+        let totalTime = 0;
+        let totalTokens = 0;
+        
+        for (const testCase of this.testQuestions) {
+            const startTime = Date.now();
+            
+            try {
+                let response;
+                
+                if (modelName.startsWith('ollama:')) {
+                    const ollamaModel = modelName.replace('ollama:', '');
+                    response = await this.ollama.chat([
+                        { role: 'system', content: 'คุณเป็น Customer Service ตอบภาษาไทย' },
+                        { role: 'user', content: testCase.question }
+                    ], { model: ollamaModel });
+                } else {
+                    const completion = await this.openai.chat.completions.create({
+                        model: modelName,
+                        messages: [
+                            { role: 'system', content: 'คุณเป็น Customer Service ตอบภาษาไทย' },
+                            { role: 'user', content: testCase.question }
+                        ],
+                        max_tokens: 300
+                    });
+                    
+                    response = {
+                        content: completion.choices[0].message.content,
+                        tokens: completion.usage
+                    };
+                    
+                    // คำนวณราคา
+                    metrics.totalCost += this.calculateCost(modelName, completion.usage);
+                }
+                
+                const responseTime = Date.now() - startTime;
+                totalTime += responseTime;
+                totalTokens += response.tokens?.total_tokens || 0;
+                
+                // ตรวจสอบความถูกต้อง
+                const isCorrect = this.checkResponse(
+                    response.content, 
+                    testCase.expectedKeywords
+                );
+                
+                if (isCorrect) metrics.correctAnswers++;
+                
+                metrics.responses.push({
+                    question: testCase.question,
+                    answer: response.content,
+                    responseTime,
+                    isCorrect,
+                    category: testCase.category
+                });
+                
+            } catch (error) {
+                console.error(`Error with ${modelName}:`, error.message);
+                metrics.responses.push({
+                    question: testCase.question,
+                    error: error.message,
+                    isCorrect: false
+                });
+            }
+        }
+        
+        metrics.avgResponseTime = Math.round(totalTime / this.testQuestions.length);
+        metrics.avgTokens = Math.round(totalTokens / this.testQuestions.length);
+        metrics.accuracy = (metrics.correctAnswers / metrics.totalQuestions * 100).toFixed(1);
+        
+        return metrics;
+    }
+
+    // ตรวจสอบ Response
+    checkResponse(response, expectedKeywords) {
+        if (!response) return false;
+        
+        const lowerResponse = response.toLowerCase();
+        const matchedKeywords = expectedKeywords.filter(kw => 
+            lowerResponse.includes(kw.toLowerCase())
+        );
+        
+        return matchedKeywords.length >= Math.ceil(expectedKeywords.length / 2);
+    }
+
+    // คำนวณค่าใช้จ่าย
+    calculateCost(model, usage) {
+        const pricing = {
+            'gpt-4o': { input: 0.0025, output: 0.01 },
+            'gpt-4o-mini': { input: 0.00015, output: 0.0006 },
+            'gpt-3.5-turbo': { input: 0.0005, output: 0.0015 }
+        };
+        
+        const p = pricing[model];
+        if (!p || !usage) return 0;
+        
+        return (usage.prompt_tokens / 1000 * p.input) + 
+               (usage.completion_tokens / 1000 * p.output);
+    }
+
+    // แสดงตารางเปรียบเทียบ
+    printComparisonTable(results) {
+        console.log('\n=== Model Comparison Results ===');
+        console.log('Model'.padEnd(30), 'Accuracy'.padEnd(12), 'Avg Time'.padEnd(12), 'Cost/Q'.padEnd(12));
+        console.log('-'.repeat(70));
+        
+        for (const [model, metrics] of Object.entries(results)) {
+            const costPerQ = (metrics.totalCost / metrics.totalQuestions).toFixed(4);
+            console.log(
+                model.padEnd(30),
+                `${metrics.accuracy}%`.padEnd(12),
+                `${metrics.avgResponseTime}ms`.padEnd(12),
+                `$${costPerQ}`.padEnd(12)
+            );
+        }
+    }
+
+    // บันทึกผลลัพธ์
+    async saveEvaluationResults(results) {
+        for (const [model, metrics] of Object.entries(results)) {
+            await db.query(`
+                INSERT INTO model_evaluations (
+                    id, model_name, accuracy, avg_response_time_ms, 
+                    avg_tokens, total_cost_usd, evaluated_at
+                ) VALUES (UUID(), ?, ?, ?, ?, ?, NOW())
+            `, [
+                model,
+                metrics.accuracy,
+                metrics.avgResponseTime,
+                metrics.avgTokens,
+                metrics.totalCost
+            ]);
+        }
+    }
+}
+
+module.exports = new ModelEvaluator();
+```
+
+## 9. Cost Analysis: GPT-4 vs Fine-tuned vs Local Model
+
+```javascript
+// src/ai/cost-analyzer.js
+const db = require('../database/mysql');
+
+class CostAnalyzer {
+    // วิเคราะห์ค่าใช้จ่ายย้อนหลัง
+    async analyzeHistoricalCost(days = 30) {
+        const data = await db.query(`
+            SELECT 
+                model,
+                COUNT(*) as requests,
+                SUM(total_tokens) as total_tokens,
+                SUM(estimated_cost) as total_cost_usd,
+                AVG(total_tokens) as avg_tokens_per_request,
+                SUM(estimated_cost) * 34 as total_cost_thb
+            FROM ai_usage_log
+            WHERE occurred_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+            GROUP BY model
+            ORDER BY total_cost_usd DESC
+        `, [days]);
+        
+        return data;
+    }
+
+    // คำนวณ Break-even Analysis
+    calculateBreakEven(config = {}) {
+        const {
+            dailyRequests = 1000,
+            avgTokensPerRequest = 500
+        } = config;
+        
+        const monthlyRequests = dailyRequests * 30;
+        const monthlyTokens = monthlyRequests * avgTokensPerRequest;
+        
+        const models = {
+            'GPT-4o': {
+                inputCostPer1k: 0.0025,
+                outputCostPer1k: 0.01,
+                setupCost: 0,
+                monthlyCost: 0
+            },
+            'GPT-4o-mini': {
+                inputCostPer1k: 0.00015,
+                outputCostPer1k: 0.0006,
+                setupCost: 0,
+                monthlyCost: 0
+            },
+            'Fine-tuned GPT-3.5': {
+                inputCostPer1k: 0.003,
+                outputCostPer1k: 0.006,
+                setupCost: 50,      // ค่า Fine-tuning
+                monthlyCost: 0
+            },
+            'Ollama (Local GPU)': {
+                inputCostPer1k: 0,
+                outputCostPer1k: 0,
+                setupCost: 0,
+                monthlyCost: 150,   // ค่าเครื่อง/ค่าไฟ ต่อเดือน
+                note: 'ต้องการ GPU Server'
+            },
+            'Ollama (Cloud GPU)': {
+                inputCostPer1k: 0,
+                outputCostPer1k: 0,
+                setupCost: 0,
+                monthlyCost: 300,   // ค่า Cloud GPU (เช่น RunPod)
+                note: 'RunPod/Vast.ai'
+            }
+        };
+        
+        // คำนวณค่าใช้จ่าย
+        const results = {};
+        for (const [name, model] of Object.entries(models)) {
+            const tokenCostUSD = (monthlyTokens / 1000) * 
+                ((model.inputCostPer1k + model.outputCostPer1k) / 2);
+            
+            const totalMonthlyUSD = tokenCostUSD + model.monthlyCost;
+            const totalMonthlyTHB = totalMonthlyUSD * 34;
+            const costPerRequestTHB = (totalMonthlyTHB / monthlyRequests).toFixed(4);
+            
+            results[name] = {
+                monthlyRequestCostUSD: tokenCostUSD.toFixed(2),
+                monthlyServerCostUSD: model.monthlyCost.toFixed(2),
+                totalMonthlyCostUSD: totalMonthlyUSD.toFixed(2),
+                totalMonthlyCostTHB: Math.round(totalMonthlyTHB).toLocaleString(),
+                costPerRequestTHB,
+                setupCostUSD: model.setupCost,
+                note: model.note || ''
+            };
+        }
+        
+        return {
+            assumptions: {
+                dailyRequests,
+                monthlyRequests,
+                avgTokensPerRequest
+            },
+            models: results
+        };
+    }
+
+    // แสดงรายงานค่าใช้จ่าย
+    async generateCostReport() {
+        const historical = await this.analyzeHistoricalCost(30);
+        const breakEven = this.calculateBreakEven({ dailyRequests: 2000 });
+        
+        console.log('\n=== AI Cost Report (30 วันที่ผ่านมา) ===');
+        console.log('\nค่าใช้จ่ายจริง:');
+        historical.forEach(model => {
+            console.log(`  ${model.model}:`);
+            console.log(`    Requests: ${model.requests.toLocaleString()}`);
+            console.log(`    Tokens: ${model.total_tokens.toLocaleString()}`);
+            console.log(`    Cost: $${model.total_cost_usd.toFixed(2)} (฿${Math.round(model.total_cost_thb).toLocaleString()})`);
+        });
+        
+        console.log('\n=== Break-Even Analysis (2,000 requests/วัน) ===');
+        Object.entries(breakEven.models).forEach(([name, data]) => {
+            console.log(`\n${name}:`);
+            console.log(`  ค่าใช้จ่ายต่อเดือน: ฿${data.totalMonthlyCostTHB}`);
+            console.log(`  ค่าใช้จ่ายต่อ Request: ฿${data.costPerRequestTHB}`);
+            if (data.note) console.log(`  หมายเหตุ: ${data.note}`);
+        });
+        
+        return { historical, breakEven };
+    }
+}
+
+module.exports = new CostAnalyzer();
+```
+
+## 10. Complete RAG + LINE Bot System
+
+```javascript
+// src/ai/line-ai-handler.js
+const RAGSystem = require('./rag-system');
+const OllamaClient = require('./ollama-client');
+const OpenAIAssistantManager = require('./openai-assistant');
+const db = require('../database/mysql');
+const lineClient = require('../line/client');
+
+class LineAIHandler {
+    constructor() {
+        this.ragSystem = RAGSystem;
+        this.ollama = OllamaClient;
+        this.assistant = OpenAIAssistantManager;
+        
+        // เลือก AI Engine
+        this.engine = process.env.AI_ENGINE || 'rag'; // rag, ollama, assistant
+        
+        // Cache สำหรับ Conversation History
+        this.conversationCache = new Map();
+    }
+
+    // จัดการข้อความจาก LINE
+    async handleMessage(lineUserId, userMessage, replyToken) {
+        const startTime = Date.now();
+        
+        try {
+            // ดึง Conversation History
+            const history = this.getConversationHistory(lineUserId);
+            
+            // ดึงข้อมูล User
+            const contact = await db.query(
+                'SELECT * FROM contacts WHERE line_user_id = ?',
+                [lineUserId]
+            );
+            const userProfile = contact.length > 0 ? contact[0] : {};
+            
+            // เรียก AI ตาม Engine
+            let result;
+            
+            switch (this.engine) {
+                case 'rag':
+                    result = await this.ragSystem.generateResponse(
+                        userMessage, history, userProfile
+                    );
+                    break;
+                    
+                case 'ollama':
+                    const isOllamaAvailable = await this.ollama.isAvailable();
+                    
+                    if (isOllamaAvailable) {
+                        const ollamaMessages = [
+                            {
+                                role: 'system',
+                                content: `คุณเป็น AI Assistant สำหรับ ${process.env.COMPANY_NAME || 'บริษัทเรา'} ตอบภาษาไทย`
+                            },
+                            ...history,
+                            { role: 'user', content: userMessage }
+                        ];
+                        
+                        const response = await this.ollama.chat(ollamaMessages);
+                        result = { answer: response.content, model: response.model };
+                    } else {
+                        // Fallback ไป RAG
+                        result = await this.ragSystem.generateResponse(
+                            userMessage, history, userProfile
+                        );
+                    }
+                    break;
+                    
+                case 'assistant':
+                    const assistantResult = await this.assistant.chat(lineUserId, userMessage);
+                    result = { answer: assistantResult.response, model: 'openai-assistant' };
+                    break;
+                    
+                default:
+                    throw new Error(`Unknown AI engine: ${this.engine}`);
+            }
+            
+            const responseTime = Date.now() - startTime;
+            
+            // อัพเดท Conversation History
+            this.updateConversationHistory(lineUserId, userMessage, result.answer);
+            
+            // ตรวจสอบว่าควร Escalate ไป Human
+            const shouldEscalate = this.shouldEscalateToHuman(result.answer, userMessage);
+            
+            if (shouldEscalate) {
+                await this.escalateToHuman(lineUserId, userMessage, replyToken);
+            } else {
+                // ส่งคำตอบ
+                await lineClient.replyMessage(replyToken, {
+                    type: 'text',
+                    text: result.answer
+                });
+            }
+            
+            // บันทึก Log
+            await this.logInteraction({
+                lineUserId,
+                userMessage,
+                botResponse: result.answer,
+                model: result.model,
+                responseTime,
+                tokensUsed: result.tokens?.total_tokens,
+                shouldEscalate
+            });
+            
+        } catch (error) {
+            console.error('AI Handler error:', error);
+            
+            // ส่งข้อความ Error
+            await lineClient.replyMessage(replyToken, {
+                type: 'text',
+                text: 'ขออภัย เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง หรือติดต่อเจ้าหน้าที่'
+            });
+        }
+    }
+
+    // ดึง Conversation History
+    getConversationHistory(lineUserId, maxTurns = 5) {
+        const history = this.conversationCache.get(lineUserId) || [];
+        return history.slice(-maxTurns * 2); // รวม User + Assistant messages
+    }
+
+    // อัพเดท History
+    updateConversationHistory(lineUserId, userMessage, assistantResponse) {
+        const history = this.conversationCache.get(lineUserId) || [];
+        
+        history.push(
+            { role: 'user', content: userMessage },
+            { role: 'assistant', content: assistantResponse }
+        );
+        
+        // เก็บแค่ 10 รอบล่าสุด
+        while (history.length > 20) {
+            history.splice(0, 2);
+        }
+        
+        this.conversationCache.set(lineUserId, history);
+        
+        // TTL: ลบหลัง 30 นาที
+        setTimeout(() => {
+            this.conversationCache.delete(lineUserId);
+        }, 30 * 60 * 1000);
+    }
+
+    // ตรวจสอบว่าควร Escalate ไป Human
+    shouldEscalateToHuman(botResponse, userMessage) {
+        const escalationKeywords = [
+            'คุย', 'เจ้าหน้าที่', 'คน', 'พนักงาน',
+            'โกรธ', 'ไม่พอใจ', 'แย่มาก', 'ห่วยแตก',
+            'ขอคืนเงิน', 'refund', 'ฟ้อง', 'แจ้งความ'
+        ];
+        
+        const lowerMsg = userMessage.toLowerCase();
+        const containsEscalation = escalationKeywords.some(kw => lowerMsg.includes(kw));
+        
+        const botIsUnsure = botResponse.toLowerCase().includes('ไม่แน่ใจ') ||
+                            botResponse.toLowerCase().includes('ส่งต่อ') ||
+                            botResponse.toLowerCase().includes('เจ้าหน้าที่');
+        
+        return containsEscalation || botIsUnsure;
+    }
+
+    // Escalate ไป Human Agent
+    async escalateToHuman(lineUserId, userMessage, replyToken) {
+        // บันทึกใน Queue สำหรับ Human
+        await db.query(`
+            INSERT INTO human_handover_queue (id, line_user_id, last_message, created_at)
+            VALUES (UUID(), ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE last_message = ?, updated_at = NOW()
+        `, [lineUserId, userMessage, userMessage]);
+        
+        // แจ้งเตือน Admin
+        const adminIds = process.env.ADMIN_LINE_USER_IDS?.split(',') || [];
+        for (const adminId of adminIds) {
+            await lineClient.pushMessage(adminId.trim(), {
+                type: 'text',
+                text: `⚠️ ต้องการความช่วยเหลือจาก Human Agent\nUser: ${lineUserId}\nข้อความ: ${userMessage}`
+            });
+        }
+        
+        // ตอบ User
+        await lineClient.replyMessage(replyToken, {
+            type: 'text',
+            text: 'กำลังส่งต่อให้เจ้าหน้าที่ดูแลคุณ กรุณารอสักครู่นะครับ/ค่ะ 🙏'
+        });
+    }
+
+    // บันทึก Interaction Log
+    async logInteraction(data) {
+        await db.query(`
+            INSERT INTO ai_interaction_logs (
+                id, line_user_id, user_message, bot_response,
+                model_used, response_time_ms, tokens_used, 
+                escalated_to_human, occurred_at
+            ) VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, NOW())
+        `, [
+            data.lineUserId,
+            data.userMessage,
+            data.botResponse,
+            data.model,
+            data.responseTime,
+            data.tokensUsed || 0,
+            data.shouldEscalate ? 1 : 0
+        ]);
+    }
+}
+
+module.exports = new LineAIHandler();
+```
+
+## 11. Docker Setup สำหรับ Complete AI Stack
+
+```yaml
+# docker-compose.ai.yml
+version: '3.8'
+
+services:
+  # ChromaDB Vector Database
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: chromadb
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/chroma/.chroma/index
+    environment:
+      - ALLOW_RESET=TRUE
+      - CHROMA_SERVER_AUTH_CREDENTIALS_PROVIDER=chromadb.auth.token.TokenConfigServerAuthCredentialsProvider
+      - CHROMA_SERVER_AUTH_TOKEN_TRANSPORT_HEADER=X-Chroma-Token
+      - CHROMA_SERVER_AUTH_CREDENTIALS=${CHROMA_TOKEN:-admin-token}
+    restart: unless-stopped
+    
+  # Ollama Local LLM
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_NUM_PARALLEL=2
+    restart: unless-stopped
+    
+  # Redis สำหรับ Cache
+  redis:
+    image: redis:7-alpine
+    container_name: redis_ai
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass ${REDIS_PASSWORD:-password}
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    
+  # LINE AI Bot
+  line-ai-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: line-ai-bot
+    ports:
+      - "3000:3000"
+    environment:
+      - LINE_CHANNEL_ACCESS_TOKEN=${LINE_CHANNEL_ACCESS_TOKEN}
+      - LINE_CHANNEL_SECRET=${LINE_CHANNEL_SECRET}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - CHROMA_URL=http://chromadb:8000
+      - OLLAMA_URL=http://ollama:11434
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-password}@redis:6379
+      - AI_ENGINE=rag  # rag, ollama, assistant
+      - CHAT_MODEL=gpt-4o-mini
+    depends_on:
+      - chromadb
+      - ollama
+      - redis
+    restart: unless-stopped
+    volumes:
+      - ./knowledge:/app/knowledge
+
+volumes:
+  chroma_data:
+  ollama_data:
+  redis_data:
+```
+
+## 12. Database Tables สำหรับ AI
+
+```sql
+-- ตาราง knowledge_base
+CREATE TABLE knowledge_base (
+    id VARCHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    question TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    category VARCHAR(100),
+    tags JSON,
+    priority INT DEFAULT 0,
+    is_active BOOLEAN DEFAULT TRUE,
+    view_count INT DEFAULT 0,
+    helpful_count INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- ตาราง ai_usage_log
+CREATE TABLE ai_usage_log (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    model VARCHAR(100) NOT NULL,
+    prompt_tokens INT DEFAULT 0,
+    completion_tokens INT DEFAULT 0,
+    total_tokens INT DEFAULT 0,
+    estimated_cost DECIMAL(10, 6) DEFAULT 0,
+    occurred_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_model (model),
+    INDEX idx_occurred_at (occurred_at)
+);
+
+-- ตาราง ai_threads (สำหรับ OpenAI Assistant)
+CREATE TABLE ai_threads (
+    id VARCHAR(36) PRIMARY KEY,
+    line_user_id VARCHAR(100) UNIQUE,
+    thread_id VARCHAR(100) NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- ตาราง ai_interaction_logs
+CREATE TABLE ai_interaction_logs (
+    id VARCHAR(36) PRIMARY KEY,
+    line_user_id VARCHAR(100),
+    user_message TEXT,
+    bot_response TEXT,
+    model_used VARCHAR(100),
+    response_time_ms INT,
+    tokens_used INT DEFAULT 0,
+    escalated_to_human BOOLEAN DEFAULT FALSE,
+    occurred_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_line_user_id (line_user_id),
+    INDEX idx_occurred_at (occurred_at)
+);
+
+-- ตาราง model_evaluations
+CREATE TABLE model_evaluations (
+    id VARCHAR(36) PRIMARY KEY,
+    model_name VARCHAR(100),
+    accuracy DECIMAL(5, 2),
+    avg_response_time_ms DECIMAL(10, 2),
+    avg_tokens DECIMAL(10, 2),
+    total_cost_usd DECIMAL(10, 4),
+    evaluated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ตาราง human_handover_queue
+CREATE TABLE human_handover_queue (
+    id VARCHAR(36) PRIMARY KEY,
+    line_user_id VARCHAR(100) NOT NULL,
+    last_message TEXT,
+    status ENUM('waiting', 'assigned', 'resolved') DEFAULT 'waiting',
+    assigned_to VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+```
+
+## สรุป
+
+ในบทนี้เราสร้าง Custom AI System สำหรับ LINE Bot ที่ประกอบด้วย:
+
+1. **Thai Language Models** - ภาพรวม Models ที่รองรับภาษาไทย
+2. **Training Data Preparation** - การเตรียมข้อมูลสำหรับ Fine-tuning จากการสนทนาจริง
+3. **RAG System** - ระบบค้นหาข้อมูลที่เกี่ยวข้องก่อนสร้างคำตอบ
+4. **Vector Databases** - Pinecone (Cloud) และ Chroma (Local)
+5. **Knowledge Base** - การโหลดข้อมูลจาก FAQ, PDF, และ Database
+6. **Ollama** - การรัน Local LLM โดยไม่ต้องพึ่ง Cloud API
+7. **OpenAI Assistant** - การใช้ Stateful Conversations ผ่าน Threads
+8. **Model Evaluation** - การเปรียบเทียบประสิทธิภาพและค่าใช้จ่าย
+9. **Cost Analysis** - การวิเคราะห์ ROI ของแต่ละ Model
+10. **Complete System** - การรวมทุกส่วนเข้าด้วยกัน
