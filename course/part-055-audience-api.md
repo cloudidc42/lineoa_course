@@ -1,1361 +1,2376 @@
-# Part 55: Audience API
+# ส่วนที่ 55: Audience API - การจัดการกลุ่มเป้าหมายอย่างครบวงจร
+
+---
 
 ## สารบัญ
 
-1. [Audience API Overview](#audience-api-overview)
-2. [Audience Types](#audience-types)
-3. [Upload Audience (User IDs)](#upload-audience-user-ids)
-4. [Click Audience](#click-audience)
-5. [Impression Audience](#impression-audience)
-6. [Video View Audience](#video-view-audience)
-7. [Chat Tag Audience](#chat-tag-audience)
-8. [Add Friend Audience](#add-friend-audience)
-9. [สร้าง Audience ผ่าน API](#สร้าง-audience-ผ่าน-api)
-10. [อัพเดต Audience](#อัพเดต-audience)
-11. [ลบ Audience](#ลบ-audience)
-12. [ใช้ Audience ใน Narrowcast](#ใช้-audience-ใน-narrowcast)
-13. [Audience Size และ Limits](#audience-size-และ-limits)
-14. [Node.js Examples](#nodejs-examples)
+1. [Audience API คืออะไร?](#1-audience-api-คืออะไร)
+2. [ทำไมต้องใช้ Audience API แทนการสร้างกลุ่มเป้าหมายด้วยตนเอง](#2-ทำไมต้องใช้-audience-api)
+3. [ประเภทของ Audience](#3-ประเภทของ-audience)
+4. [การสร้าง Audience ผ่าน API](#4-การสร้าง-audience-ผ่าน-api)
+5. [การดึงรายการ Audience](#5-การดึงรายการ-audience)
+6. [การดูรายละเอียด Audience](#6-การดูรายละเอียด-audience)
+7. [การอัปเดต Audience](#7-การอัปเดต-audience)
+8. [การลบ Audience](#8-การลบ-audience)
+9. [ขนาดและข้อกำหนดของ Audience](#9-ขนาดและข้อกำหนดของ-audience)
+10. [การรวม Audience กับ Filter](#10-การรวม-audience-กับ-filter)
+11. [การใช้ Audience ใน Narrowcast API](#11-การใช้-audience-ใน-narrowcast-api)
+12. [Audience สำหรับ LINE Ads (Retargeting)](#12-audience-สำหรับ-line-ads)
+13. [PDPA และข้อพิจารณาด้านความเป็นส่วนตัว](#13-pdpa-และข้อพิจารณา)
+14. [AudienceManager Class (Node.js)](#14-audiencemanager-class-nodejs)
+15. [AudienceService Class (Python)](#15-audienceservice-class-python)
+16. [ตัวอย่างการใช้งานจริง](#16-ตัวอย่างการใช้งานจริง)
+17. [แบบฝึกหัดท้ายบท](#17-แบบฝึกหัดท้ายบท)
 
 ---
 
-## 1. Audience API Overview
+## 1. Audience API คืออะไร?
 
-Audience API ช่วยให้สามารถกำหนดกลุ่มเป้าหมายในการส่งข้อความผ่าน Narrowcast ได้อย่างแม่นยำ
+**Audience API** คือชุด API ของ LINE Messaging API ที่ช่วยให้ธุรกิจสามารถสร้าง จัดการ และใช้งาน "กลุ่มผู้รับข้อความ (Audience)" ได้โดยอัตโนมัติผ่านโปรแกรม แทนการทำงานด้วยมือในหน้า LINE Official Account Manager
 
-### Audience คืออะไร?
-
-Audience คือกลุ่มผู้ใช้ที่ถูกจัดกลุ่มตามเกณฑ์ต่างๆ เช่น:
-- ผู้ใช้ที่กดปุ่มบางปุ่ม
-- ผู้ใช้ที่เคยดูข้อความนั้น
-- ผู้ใช้ที่เพิ่มเพื่อนในช่วงเวลาหนึ่ง
-- ผู้ใช้ที่มี Tag กำหนด
-
-### การใช้งาน Audience
+### ภาพรวมระบบ Audience
 
 ```
-Audience → Narrowcast → เฉพาะกลุ่มที่กำหนด
-
-ตัวอย่าง:
-- ส่งโปรโมชัน VIP → Audience: Users ที่ซื้อ > 3 ครั้ง
-- ส่ง Re-engagement → Audience: Users ที่ไม่ Active 30 วัน
-- ส่ง Product Update → Audience: Users ที่คลิก Product ในข้อความก่อน
+LINE Audience API
+├── Audience Management
+│   ├── Create Audience (สร้างกลุ่ม)
+│   ├── Get Audience List (ดูรายการกลุ่ม)
+│   ├── Get Audience Details (ดูรายละเอียดกลุ่ม)
+│   ├── Update Audience (อัปเดตกลุ่ม)
+│   └── Delete Audience (ลบกลุ่ม)
+├── Audience Types (ประเภทกลุ่ม)
+│   ├── Upload Audience (อัปโหลด User ID / IFA)
+│   ├── Click Audience (คลิกข้อความ)
+│   ├── Impression Audience (เห็นข้อความ)
+│   ├── Video View Audience (ดูวิดีโอ)
+│   ├── Chat Tag Audience (แท็กแชท)
+│   ├── Add Friend Audience (เพิ่มเพื่อน)
+│   └── Reserved Audience (สำรองไว้)
+└── Integration
+    ├── Narrowcast API (ส่งข้อความเจาะจง)
+    └── LINE Ads (โฆษณา)
 ```
 
-### Endpoints
+### Base URL
 
 ```
-Base URL: https://api.line.me/v2/bot
+https://api.line.me/v2/bot/audienceGroup
+```
 
-GET    /audienceGroup/{audienceGroupId}        - ดู Audience
-POST   /audienceGroup/upload                   - สร้าง Upload Audience
-PUT    /audienceGroup/{id}/uploadAudience       - เพิ่ม Users
-DELETE /audienceGroup/{audienceGroupId}        - ลบ Audience
-GET    /audienceGroups                         - ดูรายการ
-PUT    /audienceGroup/{id}                     - อัพเดตชื่อ/คำอธิบาย
-POST   /audienceGroup/click                    - สร้าง Click Audience
-POST   /audienceGroup/imp                      - สร้าง Impression Audience
-POST   /audienceGroup/video                    - สร้าง Video Audience
-PUT    /audienceGroup/{id}/share               - แชร์กับ Account อื่น
+### Authentication Header
+
+```http
+Authorization: Bearer {Channel Access Token}
+Content-Type: application/json
+```
+
+### ขีดจำกัดของ API
+
+| รายการ | ขีดจำกัด |
+|--------|----------|
+| จำนวน Audience สูงสุดต่อ Channel | 1,000 กลุ่ม |
+| ขนาด Upload ต่อครั้ง | 10,000 User IDs |
+| ขนาด Audience สูงสุด | ไม่จำกัด (รวมหลายครั้ง) |
+| Audience ขั้นต่ำสำหรับ Narrowcast | 50 คน |
+| Rate Limit | 100 requests/วินาที |
+
+---
+
+## 2. ทำไมต้องใช้ Audience API
+
+### เปรียบเทียบการสร้างกลุ่มเป้าหมายด้วยมือ vs API
+
+| หัวข้อ | สร้างด้วยมือ (LINE OA Manager) | ใช้ Audience API |
+|--------|-------------------------------|-----------------|
+| ความเร็ว | ช้า (ต้องคลิกหลายขั้นตอน) | เร็ว (Automate ได้) |
+| ขนาดข้อมูล | จำกัด (อัปโหลด CSV) | รองรับข้อมูลขนาดใหญ่ |
+| การอัปเดต | ต้องทำเองทุกครั้ง | Real-time อัตโนมัติ |
+| การรวมระบบ | ยาก | ง่าย (REST API) |
+| ความแม่นยำ | ขึ้นกับมนุษย์ | 100% แม่นยำ |
+| เวลาทำงาน | เฉพาะเวลาทำงาน | 24/7 อัตโนมัติ |
+| Audit Trail | ไม่มี | มี Log ครบ |
+| Dynamic Update | ไม่รองรับ | รองรับแบบ Real-time |
+
+### กรณีที่ควรใช้ Audience API
+
+**1. กรณีข้อมูลขนาดใหญ่**
+```
+สถานการณ์: มีลูกค้า 500,000 คนที่ซื้อสินค้าในช่วง 30 วันที่ผ่านมา
+ปัญหาถ้าทำด้วยมือ: ต้องส่งออก CSV → อัปโหลดทีละไฟล์ → ใช้เวลาหลายชั่วโมง
+แก้ด้วย API: ดึงข้อมูลจาก DB → สร้าง Audience อัตโนมัติ → เสร็จใน 5 นาที
+```
+
+**2. กรณี Dynamic Audience**
+```
+สถานการณ์: ต้องการส่งข้อความหาลูกค้าที่ยังไม่ได้ชำระเงินค้างอยู่
+ปัญหาถ้าทำด้วยมือ: รายชื่อเปลี่ยนทุกวัน ต้องอัปเดตทุกวัน
+แก้ด้วย API: Cron Job รัน Query DB → สร้าง/อัปเดต Audience ทุกคืน
+```
+
+**3. กรณี A/B Testing อัตโนมัติ**
+```
+สถานการณ์: ต้องการทดสอบข้อความ 3 แบบกับลูกค้ากลุ่มเดิม
+ปัญหาถ้าทำด้วยมือ: ต้องแบ่งกลุ่มและสร้างทีละกลุ่ม
+แก้ด้วย API: แบ่งข้อมูล → สร้าง 3 Audience พร้อมกัน → ส่งข้อความต่างกัน
+```
+
+**4. กรณี Re-targeting อัตโนมัติ**
+```
+สถานการณ์: ต้องการส่ง Follow-up ให้ผู้ที่คลิก Coupon แต่ยังไม่ซื้อ
+ปัญหาถ้าทำด้วยมือ: ต้องรอรายงาน → Export → กรอง → อัปโหลด
+แก้ด้วย API: ใช้ Click Audience → กรองใน CRM → Narrowcast อัตโนมัติ
 ```
 
 ---
 
-## 2. Audience Types
+## 3. ประเภทของ Audience
 
-### ประเภท Audience ทั้งหมด
+### 3.1 Upload Audience (กลุ่มจาก User ID / IFA)
 
-| ประเภท | วิธีสร้าง | ใช้งาน |
-|--------|----------|--------|
-| `UPLOAD` | อัพโหลด User IDs | กลุ่มที่กำหนดเอง |
-| `CLICK` | จาก Message Click | ผู้ใช้ที่คลิก URL |
-| `IMP` | จาก Message View | ผู้ใช้ที่เห็นข้อความ |
-| `VIDEO` | จาก Video View | ผู้ใช้ที่ดู Video |
-| `CHAT_TAG` | จาก Chat Tag | ผู้ใช้ที่ถูก Tag |
-| `FRIEND_PATH` | จาก Add Friend | ผู้ใช้ที่เพิ่มเพื่อน |
+**อธิบาย:** สร้างกลุ่มจากรายการ LINE User ID หรือ IFA (Identifier for Advertisers) ที่คุณอัปโหลดเองโดยตรง
 
----
+**Use Case:**
+- ลูกค้าที่ลงทะเบียนในระบบ CRM
+- ผู้ใช้แอปที่ Link กับ LINE Login
+- รายชื่อลูกค้า VIP จากระบบ POS
 
-## 3. Upload Audience (User IDs)
+**ข้อกำหนด:**
+```
+- ต้องมี User ID จาก LINE (ไม่ใช่ชื่อหรืออีเมล)
+- User ID ต้องอยู่ในรูปแบบ Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+- IFA ใช้สำหรับ LINE Ads เท่านั้น (iOS: IDFA, Android: GAID)
+- ขั้นต่ำ 50 User IDs สำหรับ Narrowcast
+```
 
-### สร้าง Upload Audience
-
-```javascript
-const axios = require('axios');
-require('dotenv').config();
-
-const LINE_API = 'https://api.line.me/v2/bot';
-const headers = {
-  'Authorization': `Bearer ${process.env.CHANNEL_ACCESS_TOKEN}`,
-  'Content-Type': 'application/json'
-};
-
-// สร้าง Audience จาก User IDs
-async function createUploadAudience(name, userIds, description = '') {
-  const payload = {
-    description: name,
-    isIfaAudience: false, // false = User ID, true = IFA (iOS Advertising ID)
-    audiences: userIds.map(id => ({ id }))
-  };
-
-  try {
-    const response = await axios.post(
-      `${LINE_API}/audienceGroup/upload`,
-      payload,
-      { headers }
-    );
-    return response.data;
-  } catch (error) {
-    console.error('Create audience error:', error.response?.data);
-    throw error;
-  }
-}
-
-// Response
-/*
+**JSON Request ตัวอย่าง:**
+```json
 {
-  "audienceGroupId": 4389303728991,
+  "description": "VIP Customers - September 2024",
+  "isIfaAudience": false,
+  "audiences": [
+    { "id": "U4af4980629..." },
+    { "id": "U8edia980629..." },
+    { "id": "U1bdia980629..." }
+  ]
+}
+```
+
+---
+
+### 3.2 Click Audience (กลุ่มจากการคลิกข้อความ)
+
+**อธิบาย:** สร้างกลุ่มโดยอัตโนมัติจากผู้ที่คลิก URL ใน Broadcast Message หรือ Narrowcast Message ที่ระบุ
+
+**Use Case:**
+- ผู้ที่สนใจโปรโมชั่น (คลิก URL ใน Broadcast)
+- ลูกค้าที่กดดู Product Landing Page
+- Re-targeting ผู้ที่คลิกแต่ยังไม่ซื้อ
+
+**การทำงาน:**
+```
+1. ส่ง Broadcast Message ที่มี URL
+2. LINE Platform ติดตามว่าใครคลิก URL นั้น
+3. สร้าง Click Audience โดยระบุ requestId ของ Broadcast นั้น
+4. Audience จะมีผู้ที่คลิก URL ทุกคนในนั้น
+```
+
+**JSON Request ตัวอย่าง:**
+```json
+{
+  "description": "Clicked Promo October 2024",
+  "requestId": "5b59509c-c57b-11e9-aa8c-2a86e4085a59",
+  "clickUrl": "https://example.com/promo"
+}
+```
+
+> **หมายเหตุ:** `requestId` คือ ID ของข้อความที่ส่งไป ได้มาจาก response ของ Broadcast API
+
+---
+
+### 3.3 Impression Audience (กลุ่มจากการเห็นข้อความ)
+
+**อธิบาย:** สร้างกลุ่มจากผู้ที่เปิดดูข้อความ (Impression) ไม่จำเป็นต้องคลิก เพียงแค่ข้อความถูกแสดงในหน้าจอ
+
+**Use Case:**
+- ผู้ที่เห็นแคมเปญแต่ยังไม่ตอบสนอง
+- วัดว่าใครอ่านข่าวสารแต่ไม่คลิก
+- ส่ง Follow-up ให้ผู้ที่เห็นแต่ไม่ดำเนินการ
+
+**ความแตกต่าง Click vs Impression:**
+```
+Impression Audience = คนที่เปิดดูข้อความ (ใหญ่กว่า)
+Click Audience = คนที่คลิก URL (เล็กกว่า แต่ Intent สูงกว่า)
+
+Impression ⊇ Click (ทุกคนที่คลิกต้องเห็นก่อน)
+```
+
+**JSON Request ตัวอย่าง:**
+```json
+{
+  "description": "Saw October Newsletter",
+  "requestId": "5b59509c-c57b-11e9-aa8c-2a86e4085a59"
+}
+```
+
+---
+
+### 3.4 Video View Audience (กลุ่มจากการดูวิดีโอ)
+
+**อธิบาย:** สร้างกลุ่มจากผู้ที่ดูวิดีโอใน Broadcast Message ถึง % ที่กำหนด เช่น ดูถึง 25%, 50%, 75%, 95%
+
+**Use Case:**
+- ผู้ที่ดูโฆษณาวิดีโอจบ (High Intent)
+- Re-targeting ผู้ที่ดูวิดีโอสินค้าแล้วยังไม่ซื้อ
+- วัด Engagement ของวิดีโอ Content
+
+**Percentage Threshold ที่รองรับ:**
+```
+RATE_25  = ดูวิดีโอถึง 25%
+RATE_50  = ดูวิดีโอถึง 50%
+RATE_75  = ดูวิดีโอถึง 75%
+RATE_95  = ดูวิดีโอถึง 95% (เกือบจบ)
+```
+
+**JSON Request ตัวอย่าง:**
+```json
+{
+  "description": "Watched Product Video 95%",
+  "requestId": "5b59509c-c57b-11e9-aa8c-2a86e4085a59",
+  "viewedRate": "RATE_95"
+}
+```
+
+---
+
+### 3.5 Chat Tag Audience (กลุ่มจาก Chat Tag)
+
+**อธิบาย:** สร้างกลุ่มจากผู้ที่มี Tag ที่แปะไว้ในหน้าแชทของ LINE OA Manager เช่น "VIP", "ซื้อแล้ว", "สนใจโปรดักส์ A"
+
+**Use Case:**
+- ส่งข้อความเฉพาะลูกค้าที่ Staff แท็กว่า "Hot Lead"
+- Broadcast ให้เฉพาะลูกค้าที่แท็กว่า "VIP"
+- ติดตามผลลูกค้าที่แท็กว่า "ต้องติดตาม"
+
+**ข้อกำหนด:**
+```
+- Tag ต้องถูกสร้างในหน้า LINE OA Manager ก่อน
+- ใช้ Chat Tag ID (ตัวเลข) ไม่ใช่ชื่อ Tag
+- ต้องมีผู้ใช้ในกลุ่มนี้อย่างน้อย 50 คน
+```
+
+**JSON Request ตัวอย่าง:**
+```json
+{
+  "description": "Chat Tag: VIP Customers",
+  "tagNames": ["VIP", "Gold Member"]
+}
+```
+
+---
+
+### 3.6 Add Friend Audience (กลุ่มจากการเพิ่มเพื่อน)
+
+**อธิบาย:** สร้างกลุ่มจากผู้ที่เพิ่มเพื่อนจากแหล่งที่มาที่ระบุ เช่น QR Code, URL เฉพาะ, LINE Ads Campaign
+
+**Add Friend Paths (ช่องทางการเพิ่มเพื่อน):**
+```
+FRIEND_PATH_QR         = สแกน QR Code
+FRIEND_PATH_URL        = กด URL เพิ่มเพื่อน
+FRIEND_PATH_SEARCH     = ค้นหาใน LINE App
+FRIEND_PATH_CARD       = ได้รับ Business Card
+FRIEND_PATH_SMS        = คลิกจาก SMS
+FRIEND_PATH_PROMOTION  = จาก Promotion
+FRIEND_PATH_CHAT_SCREEN = จากหน้าจอแชท
+FRIEND_PATH_LINE_AD    = จาก LINE Ads
+```
+
+**Use Case:**
+- ส่งข้อความต้อนรับเฉพาะผู้ที่เพิ่มเพื่อนจาก Campaign QR
+- วิเคราะห์คุณภาพลูกค้าตามแหล่งที่มา
+- ส่งข้อความตาม Journey ที่ต่างกัน
+
+**JSON Request ตัวอย่าง:**
+```json
+{
+  "description": "Added via QR Code - Store Bangkok",
+  "audienceGroupType": "FRIEND_PATH",
+  "description": "QR Code Campaign Sep 2024"
+}
+```
+
+---
+
+### 3.7 Reserved Audience (กลุ่มสำรอง)
+
+**อธิบาย:** Audience ที่จองพื้นที่ไว้ก่อน แล้วค่อยเพิ่มข้อมูลในภายหลัง ใช้สำหรับ Workflow ที่ต้องการสร้าง Audience ล่วงหน้า
+
+**Use Case:**
+- สร้าง Audience ไว้ก่อนสำหรับ Campaign ที่จะถึง
+- Placeholder สำหรับ Audience ที่ข้อมูลยังไม่พร้อม
+- ใช้ใน Automation Pipeline ที่สร้าง → เติมข้อมูล → ส่ง
+
+---
+
+## 4. การสร้าง Audience ผ่าน API
+
+### 4.1 สร้าง Upload Audience
+
+**Endpoint:**
+```
+POST https://api.line.me/v2/bot/audienceGroup/upload
+```
+
+**Request Headers:**
+```http
+Authorization: Bearer {Channel Access Token}
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "description": "VIP Customers Q4 2024",
+  "isIfaAudience": false,
+  "audiences": [
+    { "id": "U4af4980629b0fcfcbf22adf96359dbf8" },
+    { "id": "U8edia98062abcdef1234567890abcdef" },
+    { "id": "U1bdia980629ccccdddd1111222233334" }
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "audienceGroupId": 5614991017776,
   "type": "UPLOAD",
-  "description": "VIP Customers",
-  "created": 1609459200,
+  "description": "VIP Customers Q4 2024",
+  "created": 1713686400,
   "permission": "READ_WRITE",
   "createRoute": "OA_MANAGER",
   "status": "READY",
-  "audienceCount": 1500
+  "audienceCount": 3,
+  "isIfaAudience": false
 }
-*/
 ```
 
-### Upload Audience แบบ Batch
-
+**Node.js ตัวอย่าง:**
 ```javascript
-// สร้าง Audience พร้อมกำหนดจำนวน Batch
-async function createLargeUploadAudience(name, allUserIds) {
-  const BATCH_SIZE = 10000; // สูงสุด 10,000 ต่อ Request
+const axios = require('axios');
 
-  // สร้าง Audience ก่อนด้วย userIds แรก
-  const firstBatch = allUserIds.slice(0, BATCH_SIZE);
-  const audience = await createUploadAudience(name, firstBatch);
-
-  console.log(`Created audience: ${audience.audienceGroupId}`);
-
-  // เพิ่ม userIds ที่เหลือ
-  for (let i = BATCH_SIZE; i < allUserIds.length; i += BATCH_SIZE) {
-    const batch = allUserIds.slice(i, i + BATCH_SIZE);
-    await addUsersToAudience(audience.audienceGroupId, batch);
-    console.log(`Added batch ${Math.ceil(i/BATCH_SIZE) + 1}: ${batch.length} users`);
-    await new Promise(r => setTimeout(r, 1000)); // Rate limiting
-  }
-
-  return audience;
-}
-
-// เพิ่ม Users เข้า Audience ที่มีอยู่
-async function addUsersToAudience(audienceGroupId, userIds) {
-  const payload = {
-    audienceGroupId,
-    audiences: userIds.map(id => ({ id }))
-  };
-
-  const response = await axios.put(
-    `${LINE_API}/audienceGroup/${audienceGroupId}/uploadAudience`,
-    payload,
-    { headers }
+async function createUploadAudience(description, userIds) {
+  const audiences = userIds.map(id => ({ id }));
+  
+  const response = await axios.post(
+    'https://api.line.me/v2/bot/audienceGroup/upload',
+    {
+      description,
+      isIfaAudience: false,
+      audiences
+    },
+    {
+      headers: {
+        'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
+        'Content-Type': 'application/json'
+      }
+    }
   );
+  
   return response.data;
 }
+
+// การใช้งาน
+const userIds = [
+  'U4af4980629b0fcfcbf22adf96359dbf8',
+  'U8edia98062abcdef1234567890abcdef'
+];
+
+createUploadAudience('VIP Customers Q4 2024', userIds)
+  .then(result => console.log('Created:', result.audienceGroupId))
+  .catch(err => console.error('Error:', err.response?.data));
 ```
 
-### Upload Audience จาก Database
+**Python ตัวอย่าง:**
+```python
+import requests
+import os
 
-```javascript
-async function syncVIPAudience() {
-  try {
-    // ดึง VIP Users จาก Database
-    const vipUsers = await User.find({
-      memberStatus: 'vip',
-      lineUserId: { $exists: true, $ne: null },
-      notificationConsent: true
-    }).select('lineUserId');
+def create_upload_audience(description: str, user_ids: list[str]) -> dict:
+    audiences = [{"id": uid} for uid in user_ids]
+    
+    response = requests.post(
+        'https://api.line.me/v2/bot/audienceGroup/upload',
+        json={
+            "description": description,
+            "isIfaAudience": False,
+            "audiences": audiences
+        },
+        headers={
+            "Authorization": f"Bearer {os.environ['LINE_CHANNEL_ACCESS_TOKEN']}",
+            "Content-Type": "application/json"
+        }
+    )
+    response.raise_for_status()
+    return response.json()
 
-    const userIds = vipUsers.map(u => u.lineUserId);
-    console.log(`Found ${userIds.length} VIP users`);
+# การใช้งาน
+user_ids = [
+    "U4af4980629b0fcfcbf22adf96359dbf8",
+    "U8edia98062abcdef1234567890abcdef"
+]
 
-    if (userIds.length === 0) {
-      console.log('No VIP users to sync');
-      return;
-    }
+result = create_upload_audience("VIP Customers Q4 2024", user_ids)
+print(f"Created Audience ID: {result['audienceGroupId']}")
+```
 
-    // ตรวจสอบว่า Audience มีอยู่แล้วหรือไม่
-    const existingAudience = await findAudienceByDescription('VIP Customers');
+---
 
-    if (existingAudience) {
-      // อัพเดต Audience ที่มีอยู่
-      console.log(`Updating existing audience: ${existingAudience.audienceGroupId}`);
-      // ลบเก่า สร้างใหม่ (เพราะไม่มี "replace all" API)
-      await deleteAudience(existingAudience.audienceGroupId);
-    }
+### 4.2 สร้าง Click Audience
 
-    // สร้าง Audience ใหม่
-    const audience = await createLargeUploadAudience('VIP Customers', userIds);
-    console.log(`VIP Audience synced: ${audience.audienceGroupId}`);
+**Endpoint:**
+```
+POST https://api.line.me/v2/bot/audienceGroup/click
+```
 
-    // บันทึก Audience ID ลง config
-    await SystemConfig.set('vipAudienceId', audience.audienceGroupId.toString());
-
-    return audience;
-  } catch (error) {
-    console.error('Sync audience error:', error);
-    throw error;
-  }
+**Request Body:**
+```json
+{
+  "description": "Clicked Promo Oct 2024",
+  "requestId": "5b59509c-c57b-11e9-aa8c-2a86e4085a59",
+  "clickUrl": "https://example.com/promo-october"
 }
+```
 
-async function findAudienceByDescription(description) {
-  const audiences = await listAllAudiences();
-  return audiences.find(a => a.description === description);
+> `clickUrl` เป็น optional - ถ้าไม่ระบุจะรวมทุก URL ที่ถูกคลิกในข้อความนั้น
+
+**Response:**
+```json
+{
+  "audienceGroupId": 5614991017777,
+  "type": "CLICK",
+  "description": "Clicked Promo Oct 2024",
+  "created": 1713686400,
+  "requestId": "5b59509c-c57b-11e9-aa8c-2a86e4085a59",
+  "clickUrl": "https://example.com/promo-october",
+  "status": "IN_PROGRESS"
+}
+```
+
+**หมายเหตุ:** Status จะเป็น `IN_PROGRESS` ก่อน LINE Platform จะประมวลผลข้อมูลก่อนเปลี่ยนเป็น `READY`
+
+**Node.js ตัวอย่าง:**
+```javascript
+async function createClickAudience(description, requestId, clickUrl = null) {
+  const body = { description, requestId };
+  if (clickUrl) body.clickUrl = clickUrl;
+  
+  const response = await axios.post(
+    'https://api.line.me/v2/bot/audienceGroup/click',
+    body,
+    {
+      headers: {
+        'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
+        'Content-Type': 'application/json'
+      }
+    }
+  );
+  
+  return response.data;
 }
 ```
 
 ---
 
-## 4. Click Audience
+### 4.3 สร้าง Impression Audience
 
-Click Audience สร้างจากผู้ใช้ที่คลิก URL ใน Narrowcast/Broadcast message
+**Endpoint:**
+```
+POST https://api.line.me/v2/bot/audienceGroup/impression
+```
 
-### สร้าง Click Audience
-
-```javascript
-async function createClickAudience(name, requestId, clickUrl = null) {
-  const payload = {
-    description: name,
-    requestId, // ID ของ Narrowcast/Broadcast Message
-  };
-
-  if (clickUrl) {
-    payload.clickUrl = clickUrl; // URL เฉพาะที่ต้องการ track
-  }
-
-  const response = await axios.post(
-    `${LINE_API}/audienceGroup/click`,
-    payload,
-    { headers }
-  );
-  return response.data;
-}
-
-// ตัวอย่าง: สร้าง Click Audience หลังส่ง Narrowcast
-async function sendNarrowcastAndTrack(audienceGroupId, message) {
-  // ส่ง Narrowcast
-  const narrowcastResult = await sendNarrowcast(audienceGroupId, message);
-  const requestId = narrowcastResult.requestId;
-
-  // รอให้ข้อความส่งสำเร็จก่อน (ประมาณ 1-2 ชั่วโมง)
-  console.log(`Narrowcast sent with requestId: ${requestId}`);
-  console.log('Creating click audience after 2 hours...');
-
-  // Delay 2 ชั่วโมง (ใน Production ควรใช้ Scheduled Job)
-  setTimeout(async () => {
-    const clickAudience = await createClickAudience(
-      `Clicked - Campaign ${Date.now()}`,
-      requestId
-    );
-    console.log('Click Audience created:', clickAudience.audienceGroupId);
-  }, 2 * 60 * 60 * 1000);
-
-  return requestId;
+**Request Body:**
+```json
+{
+  "description": "Saw October Newsletter",
+  "requestId": "5b59509c-c57b-11e9-aa8c-2a86e4085a59"
 }
 ```
 
-### ดู Click Audience Details
+**Response:**
+```json
+{
+  "audienceGroupId": 5614991017778,
+  "type": "IMPRESSION",
+  "description": "Saw October Newsletter",
+  "created": 1713686400,
+  "requestId": "5b59509c-c57b-11e9-aa8c-2a86e4085a59",
+  "status": "IN_PROGRESS"
+}
+```
 
+---
+
+### 4.4 สร้าง Video View Audience
+
+**Endpoint:**
+```
+POST https://api.line.me/v2/bot/audienceGroup/click
+```
+
+**Request Body:**
+```json
+{
+  "description": "Watched 95% of Product Video",
+  "requestId": "5b59509c-c57b-11e9-aa8c-2a86e4085a59",
+  "viewedRate": "RATE_95"
+}
+```
+
+**viewedRate Values:**
+- `RATE_25` - ดูถึง 25%
+- `RATE_50` - ดูถึง 50%
+- `RATE_75` - ดูถึง 75%
+- `RATE_95` - ดูถึง 95%
+
+---
+
+## 5. การดึงรายการ Audience
+
+**Endpoint:**
+```
+GET https://api.line.me/v2/bot/audienceGroup/list
+```
+
+**Query Parameters:**
+```
+page        = หมายเลขหน้า (เริ่มที่ 1)
+description = กรองตามชื่อ (optional)
+status      = กรองตาม status (optional): IN_PROGRESS | READY | FAILED | EXPIRED
+size        = จำนวนต่อหน้า (สูงสุด 40, default 40)
+includesExternalPublicGroups = รวม Audience จาก LINE Ads (optional)
+createRoute = กรองตามแหล่งสร้าง (optional): OA_MANAGER | MESSAGING_API
+```
+
+**Response:**
+```json
+{
+  "audienceGroups": [
+    {
+      "audienceGroupId": 5614991017776,
+      "type": "UPLOAD",
+      "description": "VIP Customers Q4 2024",
+      "status": "READY",
+      "audienceCount": 1523,
+      "created": 1713686400,
+      "permission": "READ_WRITE",
+      "createRoute": "MESSAGING_API",
+      "isIfaAudience": false
+    },
+    {
+      "audienceGroupId": 5614991017777,
+      "type": "CLICK",
+      "description": "Clicked Promo Oct 2024",
+      "status": "READY",
+      "audienceCount": 342,
+      "created": 1713600000,
+      "permission": "READ_WRITE",
+      "createRoute": "MESSAGING_API",
+      "requestId": "5b59509c-c57b-11e9-aa8c-2a86e4085a59"
+    }
+  ],
+  "hasNextPage": true,
+  "totalCount": 45,
+  "readWriteAudienceGroupTotalCount": 30,
+  "page": 1,
+  "size": 40
+}
+```
+
+**Node.js ตัวอย่าง:**
+```javascript
+async function getAudienceList(page = 1, status = null) {
+  const params = { page, size: 40 };
+  if (status) params.status = status;
+  
+  const response = await axios.get(
+    'https://api.line.me/v2/bot/audienceGroup/list',
+    {
+      params,
+      headers: {
+        'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
+      }
+    }
+  );
+  
+  return response.data;
+}
+
+// ดึงทุก Audience ที่พร้อมใช้งาน
+async function getAllReadyAudiences() {
+  const allAudiences = [];
+  let page = 1;
+  let hasNextPage = true;
+  
+  while (hasNextPage) {
+    const result = await getAudienceList(page, 'READY');
+    allAudiences.push(...result.audienceGroups);
+    hasNextPage = result.hasNextPage;
+    page++;
+  }
+  
+  return allAudiences;
+}
+```
+
+**Python ตัวอย่าง:**
+```python
+def get_audience_list(page: int = 1, status: str = None) -> dict:
+    params = {"page": page, "size": 40}
+    if status:
+        params["status"] = status
+    
+    response = requests.get(
+        'https://api.line.me/v2/bot/audienceGroup/list',
+        params=params,
+        headers={
+            "Authorization": f"Bearer {os.environ['LINE_CHANNEL_ACCESS_TOKEN']}"
+        }
+    )
+    response.raise_for_status()
+    return response.json()
+
+def get_all_ready_audiences() -> list:
+    all_audiences = []
+    page = 1
+    
+    while True:
+        result = get_audience_list(page, status="READY")
+        all_audiences.extend(result["audienceGroups"])
+        
+        if not result.get("hasNextPage"):
+            break
+        page += 1
+    
+    return all_audiences
+```
+
+---
+
+## 6. การดูรายละเอียด Audience
+
+**Endpoint:**
+```
+GET https://api.line.me/v2/bot/audienceGroup/{audienceGroupId}
+```
+
+**Response:**
+```json
+{
+  "audienceGroup": {
+    "audienceGroupId": 5614991017776,
+    "type": "UPLOAD",
+    "description": "VIP Customers Q4 2024",
+    "status": "READY",
+    "audienceCount": 1523,
+    "created": 1713686400,
+    "permission": "READ_WRITE",
+    "createRoute": "MESSAGING_API",
+    "isIfaAudience": false,
+    "expireTimestamp": 1745222400,
+    "isLatestAudienceSupported": true
+  },
+  "jobs": [
+    {
+      "audienceGroupJobId": 12345,
+      "audienceGroupId": 5614991017776,
+      "description": "Initial Upload",
+      "type": "DIFF_ADD",
+      "status": "FINISHED",
+      "audienceCount": 1523,
+      "created": 1713686400,
+      "completed": 1713686450,
+      "failedType": null,
+      "errorCode": 0
+    }
+  ]
+}
+```
+
+**Status Values:**
+```
+IN_PROGRESS = กำลังประมวลผล
+READY       = พร้อมใช้งาน
+FAILED      = เกิดข้อผิดพลาด
+EXPIRED     = หมดอายุ (Audience อายุ 180 วัน)
+```
+
+**Node.js ตัวอย่าง:**
 ```javascript
 async function getAudienceDetails(audienceGroupId) {
   const response = await axios.get(
-    `${LINE_API}/audienceGroup/${audienceGroupId}`,
-    { headers }
+    `https://api.line.me/v2/bot/audienceGroup/${audienceGroupId}`,
+    {
+      headers: {
+        'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
+      }
+    }
   );
+  
   return response.data;
 }
 
-// Response สำหรับ Click Audience
+// ตรวจสอบว่า Audience พร้อมใช้งานหรือยัง
+async function waitForAudienceReady(audienceGroupId, maxRetries = 10) {
+  for (let i = 0; i < maxRetries; i++) {
+    const details = await getAudienceDetails(audienceGroupId);
+    const status = details.audienceGroup.status;
+    
+    if (status === 'READY') {
+      console.log(`Audience ${audienceGroupId} is ready with ${details.audienceGroup.audienceCount} members`);
+      return details.audienceGroup;
+    }
+    
+    if (status === 'FAILED') {
+      throw new Error(`Audience ${audienceGroupId} failed to process`);
+    }
+    
+    console.log(`Waiting... Status: ${status} (attempt ${i + 1}/${maxRetries})`);
+    await new Promise(resolve => setTimeout(resolve, 5000)); // รอ 5 วินาที
+  }
+  
+  throw new Error(`Audience ${audienceGroupId} did not become READY within timeout`);
+}
+```
+
+---
+
+## 7. การอัปเดต Audience
+
+### 7.1 อัปเดตชื่อ (Description)
+
+**Endpoint:**
+```
+PUT https://api.line.me/v2/bot/audienceGroup/{audienceGroupId}/updateDescription
+```
+
+**Request Body:**
+```json
+{
+  "description": "VIP Customers Q4 2024 - Updated"
+}
+```
+
+**Response:** `200 OK` (empty body)
+
+---
+
+### 7.2 เพิ่ม User IDs เข้า Upload Audience
+
+**Endpoint:**
+```
+PUT https://api.line.me/v2/bot/audienceGroup/upload
+```
+
+**Request Body:**
+```json
+{
+  "audienceGroupId": 5614991017776,
+  "audiences": [
+    { "id": "Unew1user1234567890abcdef1234567" },
+    { "id": "Unew2user1234567890abcdef7654321" }
+  ]
+}
+```
+
+**Response:** `202 Accepted`
+
+**Node.js ตัวอย่าง:**
+```javascript
+async function addUsersToAudience(audienceGroupId, userIds) {
+  const audiences = userIds.map(id => ({ id }));
+  
+  const response = await axios.put(
+    'https://api.line.me/v2/bot/audienceGroup/upload',
+    { audienceGroupId, audiences },
+    {
+      headers: {
+        'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
+        'Content-Type': 'application/json'
+      }
+    }
+  );
+  
+  return response.status === 202;
+}
+```
+
+---
+
+### 7.3 ลบ User IDs ออกจาก Upload Audience
+
+**Endpoint:**
+```
+PUT https://api.line.me/v2/bot/audienceGroup/upload/byUpload
+```
+
+**Request Body:**
+```json
+{
+  "audienceGroupId": 5614991017776,
+  "audiences": [
+    { "id": "U4af4980629b0fcfcbf22adf96359dbf8" }
+  ]
+}
+```
+
+**Node.js ตัวอย่าง:**
+```javascript
+async function removeUsersFromAudience(audienceGroupId, userIds) {
+  const audiences = userIds.map(id => ({ id }));
+  
+  const response = await axios.put(
+    'https://api.line.me/v2/bot/audienceGroup/upload/byUpload',
+    { audienceGroupId, audiences },
+    {
+      headers: {
+        'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
+        'Content-Type': 'application/json'
+      }
+    }
+  );
+  
+  return response.status === 202;
+}
+```
+
+---
+
+## 8. การลบ Audience
+
+**Endpoint:**
+```
+DELETE https://api.line.me/v2/bot/audienceGroup/{audienceGroupId}
+```
+
+**Response:** `200 OK` (empty body)
+
+**Node.js ตัวอย่าง:**
+```javascript
+async function deleteAudience(audienceGroupId) {
+  const response = await axios.delete(
+    `https://api.line.me/v2/bot/audienceGroup/${audienceGroupId}`,
+    {
+      headers: {
+        'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
+      }
+    }
+  );
+  
+  return response.status === 200;
+}
+
+// ลบ Audience ที่หมดอายุทั้งหมด
+async function deleteExpiredAudiences() {
+  const result = await getAudienceList(1, 'EXPIRED');
+  const expired = result.audienceGroups;
+  
+  let deletedCount = 0;
+  for (const audience of expired) {
+    try {
+      await deleteAudience(audience.audienceGroupId);
+      console.log(`Deleted expired audience: ${audience.description} (${audience.audienceGroupId})`);
+      deletedCount++;
+    } catch (err) {
+      console.error(`Failed to delete ${audience.audienceGroupId}:`, err.message);
+    }
+  }
+  
+  return deletedCount;
+}
+```
+
+---
+
+## 9. ขนาดและข้อกำหนดของ Audience
+
+### ข้อกำหนดขั้นต่ำ
+
+| ประเภท Audience | ขนาดขั้นต่ำ | หมายเหตุ |
+|----------------|------------|---------|
+| Upload Audience | 50 User IDs | สำหรับ Narrowcast |
+| Click Audience | อัตโนมัติ | ต้องมีผู้คลิกอย่างน้อย 50 คน |
+| Impression Audience | อัตโนมัติ | ต้องมีผู้เห็นอย่างน้อย 50 คน |
+| Video View Audience | อัตโนมัติ | ต้องมีผู้ดูอย่างน้อย 50 คน |
+| Chat Tag Audience | 50 คน | ต้องมี Tag ในระบบ |
+
+### ข้อจำกัดสำคัญ
+
+```
+1. อายุของ Audience: 180 วัน (6 เดือน)
+   - หลังจากนั้นจะเปลี่ยนเป็น EXPIRED
+   - ต้องสร้างใหม่
+
+2. จำนวน Audience ต่อ Channel: สูงสุด 1,000 กลุ่ม
+   - ควรลบกลุ่มที่ไม่ใช้แล้วออก
+
+3. ขนาดการ Upload ต่อครั้ง: 10,000 User IDs
+   - ถ้ามีมากกว่าต้องแบ่งส่งหลายรอบ
+
+4. Rate Limit: 
+   - 200 requests ต่อนาที สำหรับ Upload
+   - 100 requests ต่อวินาที ทั่วไป
+
+5. เวลาประมวลผล:
+   - Upload: ไม่กี่วินาที ถึงไม่กี่นาที
+   - Click/Impression: 24-48 ชั่วโมง (ขึ้นกับขนาด Broadcast)
+```
+
+### การแบ่ง Upload ขนาดใหญ่
+
+```javascript
+async function uploadLargeAudience(description, allUserIds) {
+  const BATCH_SIZE = 10000;
+  const batches = [];
+  
+  // แบ่งเป็น chunks ขนาด 10,000
+  for (let i = 0; i < allUserIds.length; i += BATCH_SIZE) {
+    batches.push(allUserIds.slice(i, i + BATCH_SIZE));
+  }
+  
+  // สร้าง Audience ด้วย batch แรก
+  const firstBatch = batches[0];
+  const audience = await createUploadAudience(description, firstBatch);
+  const audienceGroupId = audience.audienceGroupId;
+  
+  console.log(`Created Audience ID: ${audienceGroupId}`);
+  console.log(`Uploading batch 1/${batches.length} (${firstBatch.length} users)`);
+  
+  // เพิ่ม batch ถัดไป
+  for (let i = 1; i < batches.length; i++) {
+    console.log(`Uploading batch ${i + 1}/${batches.length} (${batches[i].length} users)`);
+    await addUsersToAudience(audienceGroupId, batches[i]);
+    
+    // รอเล็กน้อยเพื่อหลีกเลี่ยง Rate Limit
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  
+  return audienceGroupId;
+}
+```
+
+---
+
+## 10. การรวม Audience กับ Filter
+
+### Narrowcast กับ Demographic Filter
+
+คุณสามารถรวม Audience กับ Demographic Filter เพื่อให้ได้กลุ่มเป้าหมายที่แม่นยำยิ่งขึ้น
+
+**ตัวอย่าง: ส่งข้อความหา VIP Customer อายุ 25-40 ปีเท่านั้น**
+
+```json
+{
+  "messages": [
+    {
+      "type": "text",
+      "text": "สวัสดีลูกค้า VIP! มีโปรโมชั่นพิเศษสำหรับคุณ"
+    }
+  ],
+  "recipient": {
+    "type": "audienceGroup",
+    "groupId": 5614991017776
+  },
+  "filter": {
+    "demographic": {
+      "type": "operator",
+      "and": [
+        {
+          "type": "age",
+          "gte": "age_25",
+          "lt": "age_40"
+        },
+        {
+          "type": "appType",
+          "appType": ["ios", "android"]
+        }
+      ]
+    }
+  }
+}
+```
+
+### การรวมหลาย Audience (Union)
+
+**ตัวอย่าง: ส่งให้ทั้งกลุ่ม VIP และกลุ่มที่คลิก Promotion**
+
+```json
+{
+  "recipient": {
+    "type": "union",
+    "audienceGroupIds": [
+      5614991017776,
+      5614991017777
+    ]
+  }
+}
+```
+
+### การแยก Audience (Exclude)
+
+**ตัวอย่าง: ส่งให้ผู้ที่คลิก Coupon แต่ไม่รวมผู้ที่ซื้อแล้ว**
+
+```json
+{
+  "recipient": {
+    "type": "difference",
+    "minuend": {
+      "type": "audienceGroup",
+      "groupId": 5614991017777
+    },
+    "subtrahend": {
+      "type": "audienceGroup",
+      "groupId": 5614991017778
+    }
+  }
+}
+```
+
+### การตัด Audience (Intersection)
+
+**ตัวอย่าง: ส่งให้เฉพาะคนที่อยู่ทั้งสองกลุ่ม**
+
+```json
+{
+  "recipient": {
+    "type": "intersection",
+    "audienceGroupIds": [
+      5614991017776,
+      5614991017777
+    ]
+  }
+}
+```
+
+---
+
+## 11. การใช้ Audience ใน Narrowcast API
+
+### โครงสร้าง Narrowcast Request
+
+```json
+POST https://api.line.me/v2/bot/message/narrowcast
+
+{
+  "messages": [...],
+  "recipient": {
+    "type": "audienceGroup",
+    "groupId": {audienceGroupId}
+  },
+  "filter": {
+    "demographic": {...}
+  },
+  "limit": {
+    "max": 1000,
+    "upToRemainingQuota": false
+  },
+  "notificationDisabled": false
+}
+```
+
+### ตัวอย่างครบถ้วน: Narrowcast ไปยัง Audience
+
+**Node.js:**
+```javascript
+async function narrowcastToAudience(audienceGroupId, messageText, demographicFilter = null) {
+  const body = {
+    messages: [
+      {
+        type: 'text',
+        text: messageText
+      }
+    ],
+    recipient: {
+      type: 'audienceGroup',
+      groupId: audienceGroupId
+    }
+  };
+  
+  if (demographicFilter) {
+    body.filter = { demographic: demographicFilter };
+  }
+  
+  const response = await axios.post(
+    'https://api.line.me/v2/bot/message/narrowcast',
+    body,
+    {
+      headers: {
+        'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
+        'Content-Type': 'application/json',
+        'X-Line-Retry-Key': `narrowcast-${audienceGroupId}-${Date.now()}`
+      }
+    }
+  );
+  
+  // requestId สำหรับติดตามผล
+  const requestId = response.headers['x-line-request-id'];
+  console.log(`Narrowcast sent, requestId: ${requestId}`);
+  
+  return requestId;
+}
+
+// ตัวอย่างการใช้งาน
+const filter = {
+  type: 'operator',
+  and: [
+    { type: 'age', gte: 'age_20', lt: 'age_35' },
+    { type: 'gender', oneOf: ['female'] }
+  ]
+};
+
+narrowcastToAudience(5614991017776, 'สวัสดีลูกค้า VIP! มีข่าวดีสำหรับคุณ', filter);
+```
+
+### ตรวจสอบผล Narrowcast
+
+```javascript
+async function getNarrowcastProgress(requestId) {
+  const response = await axios.get(
+    `https://api.line.me/v2/bot/message/progress/narrowcast?requestId=${requestId}`,
+    {
+      headers: {
+        'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
+      }
+    }
+  );
+  
+  return response.data;
+}
+
+// Response ตัวอย่าง
 /*
 {
-  "audienceGroup": {
-    "audienceGroupId": 4389303728992,
-    "type": "CLICK",
-    "description": "Clicked - Campaign",
-    "status": "READY",
-    "audienceCount": 350,
-    "created": 1609459200,
-    "requestId": "5b59bac5-c800-1234-5678-9abc12de3456",
-    "clickUrl": "https://example.com/product"
-  }
+  "phase": "succeeded",
+  "successCount": 1234,
+  "failureCount": 5,
+  "targetCount": 1239,
+  "errorCode": null,
+  "acceptedTime": "2024-10-01T10:00:00.000Z",
+  "completedTime": "2024-10-01T10:05:00.000Z"
 }
 */
 ```
 
 ---
 
-## 5. Impression Audience
+## 12. Audience สำหรับ LINE Ads
 
-Impression Audience สร้างจากผู้ใช้ที่เห็น (receive) Narrowcast message
+### การใช้ Audience ใน LINE Ads (Retargeting)
 
-```javascript
-async function createImpressionAudience(name, requestId) {
-  const payload = {
-    description: name,
-    requestId // ID ของ Narrowcast Message
-  };
+Audience ที่สร้างจาก Messaging API สามารถใช้ใน LINE Ads เพื่อทำ Retargeting กับผู้ใช้กลุ่มเดิม
 
-  const response = await axios.post(
-    `${LINE_API}/audienceGroup/imp`,
-    payload,
-    { headers }
-  );
-  return response.data;
+**ประเภท Audience ที่ใช้กับ LINE Ads:**
+```
+1. Custom Audience - อัปโหลด User IDs / IFAs
+2. Lookalike Audience - LINE หา Similar Users
+3. Website Custom Audience - Pixel Tracking
+4. App Custom Audience - จาก App Events
+```
+
+**การสร้าง IFA Audience สำหรับ Ads:**
+
+```json
+POST https://api.line.me/v2/bot/audienceGroup/upload
+
+{
+  "description": "App Users for Retargeting",
+  "isIfaAudience": true,
+  "audiences": [
+    { "id": "00000000-0000-0000-0000-000000000001" },
+    { "id": "00000000-0000-0000-0000-000000000002" }
+  ]
 }
+```
 
-// ใช้งาน: Re-target ผู้ใช้ที่เห็น Promo แล้วแต่ไม่ซื้อ
-async function createRemarketingAudiences(campaignRequestId) {
-  try {
-    // สร้าง Impression Audience (คนที่เห็น)
-    const impressionAudience = await createImpressionAudience(
-      'Saw Promo Campaign',
-      campaignRequestId
-    );
+**หมายเหตุสำคัญ:**
+```
+- IFA (Identifier for Advertisers):
+  * iOS: IDFA (Identifier for Advertisers)
+  * Android: GAID (Google Advertising ID)
+  
+- User ID กับ IFA ต้องใช้คนละ Audience
+- IFA Audience ใช้ได้เฉพาะกับ LINE Ads ไม่สามารถ Narrowcast ได้
+- ต้องได้รับความยินยอมจากผู้ใช้ก่อนเก็บ IFA (PDPA)
+```
 
-    // สร้าง Click Audience (คนที่คลิก)
-    const clickAudience = await createClickAudience(
-      'Clicked Promo Campaign',
-      campaignRequestId
-    );
-
-    console.log('Impression Audience:', impressionAudience.audienceGroupId);
-    console.log('Click Audience:', clickAudience.audienceGroupId);
-
-    // กลยุทธ์:
-    // - ส่ง Follow-up ให้คนที่เห็นแต่ไม่คลิก
-    // - ส่ง Reminder ให้คนที่คลิกแต่ไม่ซื้อ
-
-    return { impressionAudience, clickAudience };
-  } catch (error) {
-    console.error('Error creating remarketing audiences:', error);
-    throw error;
-  }
-}
+**Lookalike Audience:**
+```
+1. สร้าง Seed Audience (กลุ่มต้นแบบ) อย่างน้อย 100 คน
+2. ใน LINE Ads Manager เลือก "สร้าง Lookalike Audience"
+3. เลือก Seed Audience
+4. LINE Algorithm จะหาคนที่มี Profile คล้ายกัน
+5. ใช้ Lookalike Audience ใน LINE Ads Campaign
 ```
 
 ---
 
-## 6. Video View Audience
+## 13. PDPA และข้อพิจารณาด้านความเป็นส่วนตัว
 
-Video View Audience สร้างจากผู้ใช้ที่ดู Video Message
+### หลักการ PDPA ที่เกี่ยวข้องกับ Audience API
 
-```javascript
-async function createVideoViewAudience(name, requestId, viewedMilliseconds) {
-  const payload = {
-    description: name,
-    requestId,
-    viewedMilliseconds // ดูนานแค่ไหน (milliseconds)
-  };
+**พ.ร.บ. คุ้มครองข้อมูลส่วนบุคคล พ.ศ. 2562 (PDPA)** มีผลกระทบโดยตรงต่อการใช้ Audience API ดังนี้:
 
-  const response = await axios.post(
-    `${LINE_API}/audienceGroup/video`,
-    payload,
-    { headers }
-  );
-  return response.data;
-}
+#### 1. ฐานทางกฎหมายในการประมวลผล (Legal Basis)
 
-// ตัวอย่าง: สร้าง Video Audience ตามเปอร์เซ็นที่ดู
-async function createVideoEngagementAudiences(videoRequestId, videoDurationMs) {
-  const audiences = {};
+```
+สำหรับ Upload Audience:
+✅ ความยินยอม (Consent) - ผู้ใช้ให้ความยินยอมผ่านนโยบาย Privacy
+✅ การปฏิบัติตามสัญญา - ลูกค้าที่ซื้อสินค้าและต้องการรับการแจ้งเตือน
+✅ ประโยชน์อันชอบธรรม - การส่งข้อมูลที่เกี่ยวข้องกับบริการที่ใช้อยู่
 
-  // 25% ของวีดีโอ (Engaged viewers)
-  audiences.quarter = await createVideoViewAudience(
-    'Video 25% Viewed',
-    videoRequestId,
-    Math.floor(videoDurationMs * 0.25)
-  );
-
-  // 50% ของวีดีโอ (Mid viewers)
-  audiences.half = await createVideoViewAudience(
-    'Video 50% Viewed',
-    videoRequestId,
-    Math.floor(videoDurationMs * 0.5)
-  );
-
-  // 75% ของวีดีโอ (Highly engaged)
-  audiences.threeQuarter = await createVideoViewAudience(
-    'Video 75% Viewed',
-    videoRequestId,
-    Math.floor(videoDurationMs * 0.75)
-  );
-
-  // 95% ของวีดีโอ (Completed viewers)
-  audiences.completed = await createVideoViewAudience(
-    'Video Completed',
-    videoRequestId,
-    Math.floor(videoDurationMs * 0.95)
-  );
-
-  return audiences;
-}
+สำหรับ IFA Audience (LINE Ads):
+✅ ความยินยอมเท่านั้น (Explicit Consent Required)
 ```
 
----
+#### 2. สิ่งที่ต้องระวัง
 
-## 7. Chat Tag Audience
-
-Chat Tag Audience สร้างจากผู้ใช้ที่มี Chat Tag กำหนด
-
-```javascript
-// Chat Tag ต้องสร้างใน LINE OA Manager ก่อน
-// Chat Tag ใช้ระบุประเภทของผู้ใช้
-
-// หมายเหตุ: Chat Tag Audience สร้างผ่าน LINE OA Manager (Web Console)
-// ไม่มี API โดยตรงสำหรับสร้าง Chat Tag Audience แต่สามารถ
-// ดึงมาใช้ใน Narrowcast ได้
-
-// สร้าง Chat Tag ผ่าน API (Tagging Users)
-async function tagUser(userId, chatTag) {
-  const response = await axios.post(
-    `https://api.line.me/v2/bot/message/tag`,
-    {
-      userId,
-      tagId: chatTag.id
-    },
-    { headers }
-  );
-  return response.data;
-}
-
-// ดู Chat Tags ทั้งหมด
-async function getChatTags() {
-  const response = await axios.get(
-    'https://api.line.me/v2/bot/message/tags',
-    { headers }
-  );
-  return response.data;
-}
-
-// ตัวอย่างระบบ Auto-tagging
-async function autoTagUserByBehavior(userId, behavior) {
-  const tags = await getChatTags();
-
-  const behaviorTagMap = {
-    'purchased': 'tag-purchased',
-    'vip': 'tag-vip',
-    'inactive_30d': 'tag-inactive',
-    'high_value': 'tag-high-value',
-    'new_user': 'tag-new'
-  };
-
-  const tagName = behaviorTagMap[behavior];
-  const tag = tags.tags?.find(t => t.name === tagName);
-
-  if (tag) {
-    await tagUser(userId, tag);
-    console.log(`Tagged ${userId} as ${tagName}`);
-  }
-}
+```
+❌ อย่าใช้ข้อมูลที่ได้มาโดยไม่ได้รับความยินยอม
+❌ อย่าเก็บ User ID โดยไม่แจ้งในนโยบาย Privacy
+❌ อย่าส่ง Marketing Message โดยไม่มีตัวเลือก Opt-out
+❌ อย่าเก็บข้อมูลนานเกินความจำเป็น
+❌ อย่าส่ง Audience ให้บุคคลที่สาม (Third Party) โดยไม่ได้รับความยินยอม
 ```
 
----
-
-## 8. Add Friend Audience
-
-Add Friend Audience สร้างจากผู้ใช้ที่เพิ่มเพื่อนในช่วงเวลาหนึ่ง
+#### 3. Best Practices สำหรับ PDPA
 
 ```javascript
-// Add Friend Audience สร้างผ่าน LINE OA Manager (Console)
-// แต่สามารถดึงมาใช้ใน API ได้
-
-// ดูรายการ Friend Path (แหล่งที่ผู้ใช้เพิ่มเพื่อน)
-async function getFriendPaths() {
-  const audiences = await listAllAudiences();
-  return audiences.filter(a => a.type === 'FRIEND_PATH');
-}
-
-// ตัวอย่าง: ส่ง Welcome message ให้กับ New Friends
-async function sendWelcomeToNewFriends() {
-  const friendPathAudiences = await getFriendPaths();
-
-  // หา Audience ของ New Friends ใน 7 วันที่ผ่านมา
-  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const recentAudiences = friendPathAudiences.filter(
-    a => a.created * 1000 >= sevenDaysAgo
-  );
-
-  if (recentAudiences.length === 0) {
-    console.log('No recent Friend Path audiences');
-    return;
+// ตัวอย่าง: เก็บ Consent ก่อนเพิ่มใน Audience
+class PDPACompliantAudienceManager {
+  
+  async addUserToAudience(userId, audienceGroupId, purpose) {
+    // 1. ตรวจสอบว่าผู้ใช้ให้ Consent สำหรับ purpose นี้
+    const hasConsent = await this.checkUserConsent(userId, purpose);
+    
+    if (!hasConsent) {
+      console.log(`User ${userId} has not consented to ${purpose}. Skipping.`);
+      return false;
+    }
+    
+    // 2. บันทึก Log ว่าเพิ่มใน Audience เพื่ออะไร
+    await this.logAudienceAddition(userId, audienceGroupId, purpose);
+    
+    // 3. เพิ่มใน Audience
+    await addUsersToAudience(audienceGroupId, [userId]);
+    return true;
   }
-
-  for (const audience of recentAudiences) {
-    await sendNarrowcast(
-      audience.audienceGroupId,
-      buildWelcomeMessage()
-    );
-    console.log(`Sent welcome to ${audience.audienceGroupId}`);
-  }
-}
-
-function buildWelcomeMessage() {
-  return {
-    type: 'flex',
-    altText: 'ยินดีต้อนรับ!',
-    contents: {
-      type: 'bubble',
-      hero: {
-        type: 'image',
-        url: 'https://example.com/welcome-banner.jpg',
-        size: 'full',
-        aspectRatio: '20:13',
-        aspectMode: 'cover'
-      },
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        contents: [
-          {
-            type: 'text',
-            text: 'ยินดีต้อนรับ! 🎉',
-            weight: 'bold',
-            size: 'xl'
-          },
-          {
-            type: 'text',
-            text: 'ขอบคุณที่เพิ่มเป็นเพื่อน รับของขวัญต้อนรับได้เลย!',
-            wrap: true,
-            color: '#666666',
-            margin: 'sm'
-          }
-        ]
-      },
-      footer: {
-        type: 'box',
-        layout: 'vertical',
-        contents: [
-          {
-            type: 'button',
-            action: {
-              type: 'uri',
-              label: 'รับของขวัญ',
-              uri: 'https://yourshop.com/welcome-gift'
-            },
-            style: 'primary',
-            color: '#00B900'
-          }
-        ]
+  
+  async handleOptOut(userId) {
+    // เมื่อผู้ใช้ Opt-out ต้องลบออกจากทุก Audience
+    const allAudiences = await getAllReadyAudiences();
+    
+    for (const audience of allAudiences) {
+      try {
+        await removeUsersFromAudience(audience.audienceGroupId, [userId]);
+        console.log(`Removed ${userId} from audience ${audience.description}`);
+      } catch (err) {
+        // อาจไม่ได้อยู่ใน Audience นั้น - ไม่ต้อง error
       }
     }
-  };
+    
+    // บันทึก Opt-out ใน Database
+    await this.recordOptOut(userId);
+  }
+  
+  async checkUserConsent(userId, purpose) {
+    // ตรวจสอบใน Database ว่าผู้ใช้ให้ Consent หรือไม่
+    // Implementation ขึ้นกับระบบ CRM ของแต่ละบริษัท
+    return true; // placeholder
+  }
+  
+  async logAudienceAddition(userId, audienceGroupId, purpose) {
+    // บันทึก Log เพื่อ Audit Trail
+    console.log(`[AUDIT] Added ${userId} to audience ${audienceGroupId} for purpose: ${purpose}`);
+  }
+  
+  async recordOptOut(userId) {
+    // บันทึก Opt-out ใน Database
+    console.log(`[AUDIT] User ${userId} opted out at ${new Date().toISOString()}`);
+  }
 }
+```
+
+#### 4. Data Retention Policy
+
+```
+Audience Data:
+- LINE Platform: 180 วัน (อัตโนมัติ)
+- ระบบของคุณ: กำหนดตาม Privacy Policy
+  * Recommended: ไม่เกิน 1 ปี สำหรับ Marketing Audience
+  * ต้องลบเมื่อผู้ใช้ขอลบข้อมูล (Right to Erasure)
+
+IFA / Tracking Data:
+- เก็บได้เฉพาะเมื่อ App อยู่ใน Foreground (iOS 14+)
+- ต้องขอ Permission อย่างชัดเจน
 ```
 
 ---
 
-## 9. สร้าง Audience ผ่าน API
-
-### Audience Manager Class
+## 14. AudienceManager Class (Node.js)
 
 ```javascript
-// AudienceManager.js
+/**
+ * AudienceManager - จัดการ LINE Audience API ครบวงจร
+ * 
+ * ความสามารถ:
+ * - สร้าง Upload / Click / Impression / Video View Audience
+ * - ดึงรายการและรายละเอียด Audience
+ * - อัปเดต (เพิ่ม/ลบ User) และลบ Audience
+ * - รองรับ Batch Upload ขนาดใหญ่
+ * - รอ Audience พร้อมใช้งาน (Polling)
+ * - PDPA-aware operations
+ */
+
+const axios = require('axios');
+
 class AudienceManager {
   constructor(channelAccessToken) {
-    this.token = channelAccessToken || process.env.CHANNEL_ACCESS_TOKEN;
-    this.apiUrl = 'https://api.line.me/v2/bot';
-    this.headers = {
+    this.token = channelAccessToken;
+    this.baseUrl = 'https://api.line.me/v2/bot/audienceGroup';
+    this.narrowcastUrl = 'https://api.line.me/v2/bot/message/narrowcast';
+    this.BATCH_SIZE = 10000;
+    this.POLL_INTERVAL = 5000; // 5 seconds
+    this.MAX_POLL_RETRIES = 60; // 5 minutes total
+  }
+  
+  get headers() {
+    return {
       'Authorization': `Bearer ${this.token}`,
       'Content-Type': 'application/json'
     };
   }
-
-  async _request(method, path, data = null) {
-    const config = {
-      method,
-      url: `${this.apiUrl}${path}`,
-      headers: this.headers
-    };
-    if (data) config.data = data;
-
-    try {
-      const response = await axios(config);
-      return response.data;
-    } catch (error) {
-      const errMsg = error.response?.data?.message || error.message;
-      throw new Error(`Audience API Error: ${errMsg}`);
+  
+  // ========== CREATE OPERATIONS ==========
+  
+  /**
+   * สร้าง Upload Audience จาก User IDs
+   * @param {string} description - ชื่อ Audience
+   * @param {string[]} userIds - รายการ User IDs
+   * @param {boolean} isIfaAudience - ใช้ IFA (สำหรับ LINE Ads)
+   * @returns {Promise<object>} - Audience object
+   */
+  async createUploadAudience(description, userIds, isIfaAudience = false) {
+    if (userIds.length === 0) {
+      throw new Error('userIds must not be empty');
     }
-  }
-
-  // ─── Create Methods ────────────────────────────────────────────
-
-  async createUpload(description, userIds = []) {
-    if (userIds.length > 10000) {
-      throw new Error('Maximum 10,000 users per request');
+    
+    // ถ้ามากกว่า BATCH_SIZE ให้ใช้ createLargeUploadAudience
+    if (userIds.length > this.BATCH_SIZE) {
+      return this.createLargeUploadAudience(description, userIds, isIfaAudience);
     }
-
-    return await this._request('POST', '/audienceGroup/upload', {
+    
+    const audiences = userIds.map(id => ({ id }));
+    
+    const response = await axios.post(
+      `${this.baseUrl}/upload`,
+      { description, isIfaAudience, audiences },
+      { headers: this.headers }
+    );
+    
+    return response.data;
+  }
+  
+  /**
+   * สร้าง Upload Audience ขนาดใหญ่ (>10,000 users) แบบแบ่ง batch
+   */
+  async createLargeUploadAudience(description, allUserIds, isIfaAudience = false) {
+    const batches = this._chunkArray(allUserIds, this.BATCH_SIZE);
+    console.log(`Splitting ${allUserIds.length} users into ${batches.length} batches`);
+    
+    // สร้าง Audience ด้วย batch แรก
+    const audience = await this.createUploadAudience(
       description,
-      isIfaAudience: false,
-      audiences: userIds.map(id => ({ id }))
-    });
+      batches[0],
+      isIfaAudience
+    );
+    const audienceGroupId = audience.audienceGroupId;
+    
+    // เพิ่ม batches ที่เหลือ
+    for (let i = 1; i < batches.length; i++) {
+      console.log(`Adding batch ${i + 1}/${batches.length}...`);
+      await this.addUsersToAudience(audienceGroupId, batches[i]);
+      await this._sleep(500); // Rate limit protection
+    }
+    
+    console.log(`Large audience created: ${audienceGroupId}`);
+    return audience;
   }
-
-  async createClick(description, requestId, clickUrl = null) {
-    const payload = { description, requestId };
-    if (clickUrl) payload.clickUrl = clickUrl;
-    return await this._request('POST', '/audienceGroup/click', payload);
+  
+  /**
+   * สร้าง Click Audience จาก Broadcast requestId
+   * @param {string} description - ชื่อ Audience
+   * @param {string} requestId - requestId ของ Broadcast/Narrowcast
+   * @param {string|null} clickUrl - URL ที่ต้องการติดตาม (optional)
+   */
+  async createClickAudience(description, requestId, clickUrl = null) {
+    const body = { description, requestId };
+    if (clickUrl) body.clickUrl = clickUrl;
+    
+    const response = await axios.post(
+      `${this.baseUrl}/click`,
+      body,
+      { headers: this.headers }
+    );
+    
+    return response.data;
   }
-
-  async createImpression(description, requestId) {
-    return await this._request('POST', '/audienceGroup/imp', {
-      description,
-      requestId
-    });
+  
+  /**
+   * สร้าง Impression Audience จาก Broadcast requestId
+   */
+  async createImpressionAudience(description, requestId) {
+    const response = await axios.post(
+      `${this.baseUrl}/impression`,
+      { description, requestId },
+      { headers: this.headers }
+    );
+    
+    return response.data;
   }
-
-  async createVideoView(description, requestId, viewedMilliseconds) {
-    return await this._request('POST', '/audienceGroup/video', {
-      description,
-      requestId,
-      viewedMilliseconds
-    });
+  
+  /**
+   * สร้าง Video View Audience
+   * @param {string} viewedRate - 'RATE_25' | 'RATE_50' | 'RATE_75' | 'RATE_95'
+   */
+  async createVideoViewAudience(description, requestId, viewedRate = 'RATE_95') {
+    const validRates = ['RATE_25', 'RATE_50', 'RATE_75', 'RATE_95'];
+    if (!validRates.includes(viewedRate)) {
+      throw new Error(`Invalid viewedRate. Must be one of: ${validRates.join(', ')}`);
+    }
+    
+    const response = await axios.post(
+      `${this.baseUrl}/click`,
+      { description, requestId, viewedRate },
+      { headers: this.headers }
+    );
+    
+    return response.data;
   }
-
-  // ─── Read Methods ────────────────────────────────────────────
-
-  async get(audienceGroupId) {
-    return await this._request('GET', `/audienceGroup/${audienceGroupId}`);
-  }
-
-  async list(options = {}) {
-    const {
-      page = 1,
-      description,
-      status,
-      size = 40,
-      includeExternalPublicGroups = true,
-      createRoute
-    } = options;
-
-    const params = new URLSearchParams({ page, size, includeExternalPublicGroups });
-    if (description) params.append('description', description);
-    if (status) params.append('status', status);
-    if (createRoute) params.append('createRoute', createRoute);
-
-    return await this._request('GET', `/audienceGroups?${params}`);
-  }
-
-  async listAll(options = {}) {
+  
+  // ========== READ OPERATIONS ==========
+  
+  /**
+   * ดึงรายการ Audience ทั้งหมด
+   * @param {object} options - { status, description, createRoute }
+   */
+  async listAudiences(options = {}) {
+    const { status, description, createRoute } = options;
     const allAudiences = [];
     let page = 1;
-    let hasMore = true;
-
-    while (hasMore) {
-      const result = await this.list({ ...options, page });
-      allAudiences.push(...(result.audienceGroups || []));
-
-      hasMore = result.hasNextPage || false;
+    let hasNextPage = true;
+    
+    while (hasNextPage) {
+      const params = { page, size: 40 };
+      if (status) params.status = status;
+      if (description) params.description = description;
+      if (createRoute) params.createRoute = createRoute;
+      
+      const response = await axios.get(
+        `${this.baseUrl}/list`,
+        { params, headers: this.headers }
+      );
+      
+      allAudiences.push(...response.data.audienceGroups);
+      hasNextPage = response.data.hasNextPage;
       page++;
-
-      if (page > 100) break; // Safety limit
     }
-
+    
     return allAudiences;
   }
-
-  // ─── Update Methods ────────────────────────────────────────────
-
-  async addUsers(audienceGroupId, userIds) {
-    const batchSize = 10000;
-    const results = [];
-
-    for (let i = 0; i < userIds.length; i += batchSize) {
-      const batch = userIds.slice(i, i + batchSize);
-      const result = await this._request(
-        'PUT',
-        `/audienceGroup/${audienceGroupId}/uploadAudience`,
-        {
-          audienceGroupId,
-          audiences: batch.map(id => ({ id }))
-        }
-      );
-      results.push(result);
-
-      if (i + batchSize < userIds.length) {
-        await new Promise(r => setTimeout(r, 500));
-      }
-    }
-
-    return results;
+  
+  /**
+   * ดูรายละเอียด Audience
+   */
+  async getAudienceDetails(audienceGroupId) {
+    const response = await axios.get(
+      `${this.baseUrl}/${audienceGroupId}`,
+      { headers: this.headers }
+    );
+    
+    return response.data;
   }
-
+  
+  /**
+   * รอจนกว่า Audience จะ READY
+   * @param {number} audienceGroupId
+   * @returns {Promise<object>} - Audience object when ready
+   */
+  async waitUntilReady(audienceGroupId) {
+    for (let i = 0; i < this.MAX_POLL_RETRIES; i++) {
+      const details = await this.getAudienceDetails(audienceGroupId);
+      const { status, audienceCount, description } = details.audienceGroup;
+      
+      if (status === 'READY') {
+        console.log(`✓ Audience "${description}" is ready with ${audienceCount} members`);
+        return details.audienceGroup;
+      }
+      
+      if (status === 'FAILED') {
+        throw new Error(`Audience ${audienceGroupId} (${description}) failed to process`);
+      }
+      
+      if (status === 'EXPIRED') {
+        throw new Error(`Audience ${audienceGroupId} has expired`);
+      }
+      
+      console.log(`Waiting for audience ${audienceGroupId}... Status: ${status} (${i + 1}/${this.MAX_POLL_RETRIES})`);
+      await this._sleep(this.POLL_INTERVAL);
+    }
+    
+    throw new Error(`Timeout waiting for audience ${audienceGroupId} to be ready`);
+  }
+  
+  // ========== UPDATE OPERATIONS ==========
+  
+  /**
+   * อัปเดตชื่อ Audience
+   */
   async updateDescription(audienceGroupId, description) {
-    return await this._request('PUT', `/audienceGroup/${audienceGroupId}`, {
-      description
-    });
+    await axios.put(
+      `${this.baseUrl}/${audienceGroupId}/updateDescription`,
+      { description },
+      { headers: this.headers }
+    );
+    
+    return true;
   }
-
-  // ─── Delete Methods ────────────────────────────────────────────
-
-  async delete(audienceGroupId) {
-    return await this._request('DELETE', `/audienceGroup/${audienceGroupId}`);
+  
+  /**
+   * เพิ่ม User IDs เข้า Audience
+   */
+  async addUsersToAudience(audienceGroupId, userIds) {
+    if (userIds.length > this.BATCH_SIZE) {
+      // แบ่ง batch ถ้ามากเกินไป
+      const batches = this._chunkArray(userIds, this.BATCH_SIZE);
+      for (const batch of batches) {
+        await this._addUsersBatch(audienceGroupId, batch);
+        await this._sleep(500);
+      }
+      return true;
+    }
+    
+    return this._addUsersBatch(audienceGroupId, userIds);
   }
-
-  async deleteAll(options = {}) {
-    const audiences = await this.listAll(options);
-    const results = [];
-
-    for (const audience of audiences) {
+  
+  async _addUsersBatch(audienceGroupId, userIds) {
+    const audiences = userIds.map(id => ({ id }));
+    
+    await axios.put(
+      `${this.baseUrl}/upload`,
+      { audienceGroupId, audiences },
+      { headers: this.headers }
+    );
+    
+    return true;
+  }
+  
+  /**
+   * ลบ User IDs ออกจาก Audience
+   */
+  async removeUsersFromAudience(audienceGroupId, userIds) {
+    const audiences = userIds.map(id => ({ id }));
+    
+    await axios.put(
+      `${this.baseUrl}/upload/byUpload`,
+      { audienceGroupId, audiences },
+      { headers: this.headers }
+    );
+    
+    return true;
+  }
+  
+  // ========== DELETE OPERATIONS ==========
+  
+  /**
+   * ลบ Audience
+   */
+  async deleteAudience(audienceGroupId) {
+    await axios.delete(
+      `${this.baseUrl}/${audienceGroupId}`,
+      { headers: this.headers }
+    );
+    
+    return true;
+  }
+  
+  /**
+   * ลบ Audience ที่หมดอายุทั้งหมด
+   */
+  async cleanupExpiredAudiences() {
+    const expired = await this.listAudiences({ status: 'EXPIRED' });
+    console.log(`Found ${expired.length} expired audiences to delete`);
+    
+    let deletedCount = 0;
+    for (const audience of expired) {
       try {
-        await this.delete(audience.audienceGroupId);
-        results.push({ id: audience.audienceGroupId, success: true });
-      } catch (error) {
-        results.push({
-          id: audience.audienceGroupId,
-          success: false,
-          error: error.message
-        });
+        await this.deleteAudience(audience.audienceGroupId);
+        console.log(`  Deleted: ${audience.description} (${audience.audienceGroupId})`);
+        deletedCount++;
+      } catch (err) {
+        console.error(`  Failed to delete ${audience.audienceGroupId}:`, err.message);
       }
     }
-
-    return results;
+    
+    return deletedCount;
   }
-
-  // ─── Share Methods ────────────────────────────────────────────
-
-  async share(audienceGroupId) {
-    return await this._request('PUT', `/audienceGroup/${audienceGroupId}/share`);
-  }
-
-  // ─── Utility Methods ────────────────────────────────────────────
-
-  async findByDescription(description) {
-    const audiences = await this.listAll();
-    return audiences.find(a => a.description === description);
-  }
-
-  async upsert(description, userIds) {
-    const existing = await this.findByDescription(description);
-
-    if (existing) {
-      // ลบเก่า สร้างใหม่ (เพราะไม่มี replace API)
-      await this.delete(existing.audienceGroupId);
+  
+  // ========== NARROWCAST OPERATIONS ==========
+  
+  /**
+   * ส่ง Narrowcast ไปยัง Audience
+   */
+  async narrowcastToAudience(audienceGroupId, messages, demographicFilter = null) {
+    const body = {
+      messages: Array.isArray(messages) ? messages : [messages],
+      recipient: {
+        type: 'audienceGroup',
+        groupId: audienceGroupId
+      }
+    };
+    
+    if (demographicFilter) {
+      body.filter = { demographic: demographicFilter };
     }
-
-    return await this.createUpload(description, userIds.slice(0, 10000));
+    
+    const response = await axios.post(
+      this.narrowcastUrl,
+      body,
+      {
+        headers: {
+          ...this.headers,
+          'X-Line-Retry-Key': `narrowcast-${audienceGroupId}-${Date.now()}`
+        }
+      }
+    );
+    
+    return response.headers['x-line-request-id'];
   }
-
-  // ตรวจสอบสถานะ Audience
-  async waitForReady(audienceGroupId, maxWait = 30 * 60 * 1000) {
-    const startTime = Date.now();
-    const checkInterval = 30000; // 30 วินาที
-
-    while (Date.now() - startTime < maxWait) {
-      const audience = await this.get(audienceGroupId);
-      const status = audience.audienceGroup?.status;
-
-      if (status === 'READY') return audience;
-      if (status === 'FAILED') throw new Error(`Audience ${audienceGroupId} failed`);
-
-      console.log(`Audience status: ${status}. Waiting...`);
-      await new Promise(r => setTimeout(r, checkInterval));
+  
+  /**
+   * ตรวจสอบสถานะ Narrowcast
+   */
+  async getNarrowcastProgress(requestId) {
+    const response = await axios.get(
+      `https://api.line.me/v2/bot/message/progress/narrowcast?requestId=${requestId}`,
+      { headers: this.headers }
+    );
+    
+    return response.data;
+  }
+  
+  // ========== UTILITY METHODS ==========
+  
+  /**
+   * สร้าง Click Audience แล้วรอจนพร้อม
+   */
+  async createAndWaitClickAudience(description, requestId, clickUrl = null) {
+    const audience = await this.createClickAudience(description, requestId, clickUrl);
+    return this.waitUntilReady(audience.audienceGroupId);
+  }
+  
+  /**
+   * สรุปสถิติ Audience ทั้งหมด
+   */
+  async getAudienceSummary() {
+    const allAudiences = await this.listAudiences();
+    
+    const summary = {
+      total: allAudiences.length,
+      byStatus: {},
+      byType: {},
+      totalMembers: 0
+    };
+    
+    for (const audience of allAudiences) {
+      // นับตาม Status
+      summary.byStatus[audience.status] = (summary.byStatus[audience.status] || 0) + 1;
+      
+      // นับตาม Type
+      summary.byType[audience.type] = (summary.byType[audience.type] || 0) + 1;
+      
+      // รวม Members
+      summary.totalMembers += audience.audienceCount || 0;
     }
-
-    throw new Error(`Audience ${audienceGroupId} not ready after ${maxWait/60000} minutes`);
+    
+    return summary;
+  }
+  
+  _chunkArray(arr, size) {
+    const chunks = [];
+    for (let i = 0; i < arr.length; i += size) {
+      chunks.push(arr.slice(i, i + size));
+    }
+    return chunks;
+  }
+  
+  _sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
 
 module.exports = AudienceManager;
-```
 
----
+// ========== ตัวอย่างการใช้งาน ==========
 
-## 10. อัพเดต Audience
-
-```javascript
-const audienceManager = new AudienceManager();
-
-// อัพเดตชื่อ/คำอธิบาย
-async function renameAudience(audienceGroupId, newDescription) {
-  try {
-    await audienceManager.updateDescription(audienceGroupId, newDescription);
-    console.log(`Renamed audience ${audienceGroupId} to "${newDescription}"`);
-  } catch (error) {
-    console.error('Rename error:', error);
-  }
-}
-
-// อัพเดต Users ใน Audience
-async function refreshAudience(audienceGroupId, newUserIds) {
-  try {
-    console.log(`Adding ${newUserIds.length} users to audience ${audienceGroupId}`);
-    const results = await audienceManager.addUsers(audienceGroupId, newUserIds);
-    console.log(`Added users successfully`);
-    return results;
-  } catch (error) {
-    console.error('Refresh audience error:', error);
-    throw error;
-  }
-}
-
-// Sync Audience กับ Database ทุกวัน
-const cron = require('node-cron');
-
-cron.schedule('0 2 * * *', async () => {
-  console.log('Daily audience sync started...');
-
-  try {
-    // Sync VIP Audience
-    const vipUsers = await User.find({
-      memberStatus: 'vip',
-      lineUserId: { $exists: true }
-    }).select('lineUserId');
-    const vipIds = vipUsers.map(u => u.lineUserId);
-
-    const vipAudienceId = process.env.VIP_AUDIENCE_ID;
-    if (vipAudienceId) {
-      await refreshAudience(vipAudienceId, vipIds);
-    } else {
-      const audience = await audienceManager.createUpload('VIP Members', vipIds);
-      process.env.VIP_AUDIENCE_ID = audience.audienceGroupId;
-    }
-
-    // Sync Inactive Users (ไม่ active 30 วัน)
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const inactiveUsers = await User.find({
-      lastActiveAt: { $lt: thirtyDaysAgo },
-      lineUserId: { $exists: true }
-    }).select('lineUserId');
-    const inactiveIds = inactiveUsers.map(u => u.lineUserId);
-
-    await audienceManager.upsert('Inactive 30 Days', inactiveIds);
-
-    console.log('Daily audience sync completed');
-  } catch (error) {
-    console.error('Audience sync failed:', error);
-  }
-});
-```
-
----
-
-## 11. ลบ Audience
-
-```javascript
-// ลบ Audience เดียว
-async function deleteAudience(audienceGroupId) {
-  try {
-    await audienceManager.delete(audienceGroupId);
-    console.log(`Deleted audience: ${audienceGroupId}`);
-    return true;
-  } catch (error) {
-    console.error('Delete error:', error.message);
-    return false;
-  }
-}
-
-// ลบ Audiences ที่หมดอายุ
-async function cleanupOldAudiences(maxAgeDays = 90) {
-  const audiences = await audienceManager.listAll();
-  const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
-  const cutoff = Date.now() - maxAgeMs;
-
-  const oldAudiences = audiences.filter(
-    a => a.created * 1000 < cutoff && a.status === 'READY'
+async function main() {
+  const manager = new AudienceManager(process.env.LINE_CHANNEL_ACCESS_TOKEN);
+  
+  // 1. สร้าง Upload Audience
+  const uploadAudience = await manager.createUploadAudience(
+    'VIP Customers October 2024',
+    [
+      'U4af4980629b0fcfcbf22adf96359dbf8',
+      'U8edia98062abcdef1234567890abcdef'
+    ]
   );
-
-  console.log(`Found ${oldAudiences.length} audiences older than ${maxAgeDays} days`);
-
-  let deleted = 0;
-  for (const audience of oldAudiences) {
-    const success = await deleteAudience(audience.audienceGroupId);
-    if (success) deleted++;
-    await new Promise(r => setTimeout(r, 200));
-  }
-
-  console.log(`Deleted ${deleted}/${oldAudiences.length} old audiences`);
-  return deleted;
-}
-
-// ลบ Audience ที่ล้มเหลว
-async function deleteFailedAudiences() {
-  const audiences = await audienceManager.list({ status: 'FAILED' });
-  const results = [];
-
-  for (const a of (audiences.audienceGroups || [])) {
-    const success = await deleteAudience(a.audienceGroupId);
-    results.push({ id: a.audienceGroupId, success });
-  }
-
-  return results;
+  console.log('Upload Audience ID:', uploadAudience.audienceGroupId);
+  
+  // 2. สรุป Audience ทั้งหมด
+  const summary = await manager.getAudienceSummary();
+  console.log('Audience Summary:', JSON.stringify(summary, null, 2));
+  
+  // 3. ลบ Audience หมดอายุ
+  const deleted = await manager.cleanupExpiredAudiences();
+  console.log(`Cleaned up ${deleted} expired audiences`);
 }
 ```
 
 ---
 
-## 12. ใช้ Audience ใน Narrowcast
+## 15. AudienceService Class (Python)
 
-### Narrowcast กับ Audience
+```python
+"""
+AudienceService - LINE Audience API Management Service
 
-```javascript
-// Narrowcast Service
-async function sendNarrowcast(audienceGroupId, messages, options = {}) {
-  const payload = {
-    messages: Array.isArray(messages) ? messages : [messages],
-    recipient: {
-      type: 'audience',
-      audienceGroupId
-    },
-    notificationDisabled: options.silent || false
-  };
+ความสามารถ:
+- สร้าง Audience หลายประเภท (Upload, Click, Impression, Video)
+- จัดการ Audience แบบ Batch สำหรับข้อมูลขนาดใหญ่
+- Polling จนกว่า Audience พร้อมใช้งาน
+- รองรับ PDPA-compliant operations
+- Narrowcast ผ่าน Audience
+"""
 
-  // เพิ่ม Demographic Filter ถ้ามี
-  if (options.demographic) {
-    payload.demographic = options.demographic;
-  }
+import os
+import time
+import logging
+from typing import Optional, Union
+from dataclasses import dataclass
 
-  const response = await axios.post(
-    'https://api.line.me/v2/bot/message/narrowcast',
-    payload,
-    { headers }
-  );
+import requests
 
-  return response.data;
-}
+logger = logging.getLogger(__name__)
 
-// ตัวอย่าง: Narrowcast ให้ VIP Members
-async function sendVIPPromotion(promotion) {
-  const vipAudienceId = await getAudienceId('VIP Members');
 
-  if (!vipAudienceId) {
-    throw new Error('VIP Audience not found');
-  }
+@dataclass
+class AudienceInfo:
+    audience_group_id: int
+    audience_type: str
+    description: str
+    status: str
+    audience_count: int
+    created: int
+    permission: str
+    create_route: str
+    is_ifa_audience: bool = False
 
-  const message = {
-    type: 'flex',
-    altText: `VIP Exclusive: ${promotion.title}`,
-    contents: buildPromotionFlex(promotion, 'vip')
-  };
 
-  const result = await sendNarrowcast(vipAudienceId, message);
-  console.log(`VIP Narrowcast sent: ${result.requestId}`);
-  return result.requestId;
-}
+class AudienceServiceError(Exception):
+    """Custom exception for AudienceService"""
+    pass
 
-async function getAudienceId(description) {
-  const audience = await audienceManager.findByDescription(description);
-  return audience?.audienceGroupId;
-}
 
-// Narrowcast กับ Multiple Audiences (Union)
-async function sendToMultipleAudiences(audienceIds, message) {
-  const results = [];
+class AudienceService:
+    """LINE Audience API Service"""
+    
+    BASE_URL = "https://api.line.me/v2/bot/audienceGroup"
+    NARROWCAST_URL = "https://api.line.me/v2/bot/message/narrowcast"
+    BATCH_SIZE = 10_000
+    POLL_INTERVAL = 5  # seconds
+    MAX_POLL_RETRIES = 60  # 5 minutes
+    
+    def __init__(self, channel_access_token: str):
+        self.token = channel_access_token
+        self.session = requests.Session()
+        self.session.headers.update({
+            "Authorization": f"Bearer {channel_access_token}",
+            "Content-Type": "application/json"
+        })
+    
+    # ========== CREATE OPERATIONS ==========
+    
+    def create_upload_audience(
+        self,
+        description: str,
+        user_ids: list[str],
+        is_ifa_audience: bool = False
+    ) -> AudienceInfo:
+        """
+        สร้าง Upload Audience จาก User IDs
+        
+        Args:
+            description: ชื่อ Audience
+            user_ids: รายการ LINE User IDs
+            is_ifa_audience: ใช้ IFA format (สำหรับ LINE Ads)
+        
+        Returns:
+            AudienceInfo object
+        
+        Raises:
+            AudienceServiceError: เมื่อ API ตอบกลับด้วย error
+        """
+        if not user_ids:
+            raise ValueError("user_ids must not be empty")
+        
+        if len(user_ids) > self.BATCH_SIZE:
+            return self._create_large_upload_audience(description, user_ids, is_ifa_audience)
+        
+        audiences = [{"id": uid} for uid in user_ids]
+        
+        response = self.session.post(
+            f"{self.BASE_URL}/upload",
+            json={
+                "description": description,
+                "isIfaAudience": is_ifa_audience,
+                "audiences": audiences
+            }
+        )
+        
+        self._handle_error(response)
+        data = response.json()
+        
+        return self._parse_audience_info(data)
+    
+    def _create_large_upload_audience(
+        self,
+        description: str,
+        all_user_ids: list[str],
+        is_ifa_audience: bool = False
+    ) -> AudienceInfo:
+        """สร้าง Upload Audience ขนาดใหญ่โดยแบ่ง batch"""
+        batches = self._chunk_list(all_user_ids, self.BATCH_SIZE)
+        logger.info(f"Splitting {len(all_user_ids)} users into {len(batches)} batches")
+        
+        # สร้างด้วย batch แรก
+        audience = self.create_upload_audience(description, batches[0], is_ifa_audience)
+        audience_id = audience.audience_group_id
+        
+        # เพิ่ม batch ที่เหลือ
+        for i, batch in enumerate(batches[1:], start=2):
+            logger.info(f"Adding batch {i}/{len(batches)} ({len(batch)} users)...")
+            self.add_users_to_audience(audience_id, batch)
+            time.sleep(0.5)  # Rate limit protection
+        
+        logger.info(f"Large audience created: {audience_id}")
+        return audience
+    
+    def create_click_audience(
+        self,
+        description: str,
+        request_id: str,
+        click_url: Optional[str] = None
+    ) -> AudienceInfo:
+        """
+        สร้าง Click Audience จากผู้ที่คลิก URL ใน Broadcast
+        
+        Args:
+            description: ชื่อ Audience
+            request_id: requestId ของ Broadcast Message
+            click_url: URL ที่ต้องการติดตาม (None = ทุก URL)
+        """
+        body = {"description": description, "requestId": request_id}
+        if click_url:
+            body["clickUrl"] = click_url
+        
+        response = self.session.post(f"{self.BASE_URL}/click", json=body)
+        self._handle_error(response)
+        
+        return self._parse_audience_info(response.json())
+    
+    def create_impression_audience(
+        self,
+        description: str,
+        request_id: str
+    ) -> AudienceInfo:
+        """สร้าง Impression Audience จากผู้ที่เห็นข้อความ"""
+        response = self.session.post(
+            f"{self.BASE_URL}/impression",
+            json={"description": description, "requestId": request_id}
+        )
+        self._handle_error(response)
+        
+        return self._parse_audience_info(response.json())
+    
+    def create_video_view_audience(
+        self,
+        description: str,
+        request_id: str,
+        viewed_rate: str = "RATE_95"
+    ) -> AudienceInfo:
+        """
+        สร้าง Video View Audience
+        
+        Args:
+            viewed_rate: 'RATE_25' | 'RATE_50' | 'RATE_75' | 'RATE_95'
+        """
+        valid_rates = {"RATE_25", "RATE_50", "RATE_75", "RATE_95"}
+        if viewed_rate not in valid_rates:
+            raise ValueError(f"Invalid viewed_rate. Must be one of: {valid_rates}")
+        
+        response = self.session.post(
+            f"{self.BASE_URL}/click",
+            json={
+                "description": description,
+                "requestId": request_id,
+                "viewedRate": viewed_rate
+            }
+        )
+        self._handle_error(response)
+        
+        return self._parse_audience_info(response.json())
+    
+    # ========== READ OPERATIONS ==========
+    
+    def list_audiences(
+        self,
+        status: Optional[str] = None,
+        description: Optional[str] = None,
+        create_route: Optional[str] = None
+    ) -> list[AudienceInfo]:
+        """
+        ดึงรายการ Audience ทั้งหมด (auto-paginate)
+        
+        Args:
+            status: กรองตาม status (IN_PROGRESS|READY|FAILED|EXPIRED)
+            description: กรองตามชื่อ
+            create_route: กรองตาม route (OA_MANAGER|MESSAGING_API)
+        """
+        all_audiences = []
+        page = 1
+        
+        while True:
+            params = {"page": page, "size": 40}
+            if status:
+                params["status"] = status
+            if description:
+                params["description"] = description
+            if create_route:
+                params["createRoute"] = create_route
+            
+            response = self.session.get(f"{self.BASE_URL}/list", params=params)
+            self._handle_error(response)
+            
+            data = response.json()
+            audiences = [self._parse_audience_info(a) for a in data["audienceGroups"]]
+            all_audiences.extend(audiences)
+            
+            if not data.get("hasNextPage"):
+                break
+            page += 1
+        
+        return all_audiences
+    
+    def get_audience_details(self, audience_group_id: int) -> dict:
+        """ดูรายละเอียด Audience รวม Jobs"""
+        response = self.session.get(f"{self.BASE_URL}/{audience_group_id}")
+        self._handle_error(response)
+        
+        return response.json()
+    
+    def wait_until_ready(
+        self,
+        audience_group_id: int,
+        timeout_seconds: int = 300
+    ) -> AudienceInfo:
+        """
+        รอจนกว่า Audience จะ READY
+        
+        Args:
+            audience_group_id: Audience ID
+            timeout_seconds: Timeout ในวินาที (default 5 นาที)
+        
+        Returns:
+            AudienceInfo เมื่อ READY
+        
+        Raises:
+            AudienceServiceError: เมื่อ FAILED หรือ timeout
+        """
+        max_retries = timeout_seconds // self.POLL_INTERVAL
+        
+        for i in range(max_retries):
+            details = self.get_audience_details(audience_group_id)
+            audience = details["audienceGroup"]
+            status = audience["status"]
+            
+            if status == "READY":
+                logger.info(
+                    f"Audience {audience_group_id} ({audience['description']}) "
+                    f"is ready with {audience.get('audienceCount', 0)} members"
+                )
+                return self._parse_audience_info(audience)
+            
+            if status == "FAILED":
+                raise AudienceServiceError(
+                    f"Audience {audience_group_id} failed to process"
+                )
+            
+            if status == "EXPIRED":
+                raise AudienceServiceError(
+                    f"Audience {audience_group_id} has expired"
+                )
+            
+            logger.debug(
+                f"Waiting for audience {audience_group_id}... "
+                f"Status: {status} ({i + 1}/{max_retries})"
+            )
+            time.sleep(self.POLL_INTERVAL)
+        
+        raise AudienceServiceError(
+            f"Timeout waiting for audience {audience_group_id} to be ready"
+        )
+    
+    # ========== UPDATE OPERATIONS ==========
+    
+    def update_description(self, audience_group_id: int, description: str) -> bool:
+        """อัปเดตชื่อ Audience"""
+        response = self.session.put(
+            f"{self.BASE_URL}/{audience_group_id}/updateDescription",
+            json={"description": description}
+        )
+        self._handle_error(response)
+        
+        return True
+    
+    def add_users_to_audience(
+        self,
+        audience_group_id: int,
+        user_ids: list[str]
+    ) -> bool:
+        """เพิ่ม User IDs เข้า Upload Audience"""
+        if len(user_ids) > self.BATCH_SIZE:
+            batches = self._chunk_list(user_ids, self.BATCH_SIZE)
+            for batch in batches:
+                self._add_users_batch(audience_group_id, batch)
+                time.sleep(0.5)
+            return True
+        
+        return self._add_users_batch(audience_group_id, user_ids)
+    
+    def _add_users_batch(self, audience_group_id: int, user_ids: list[str]) -> bool:
+        audiences = [{"id": uid} for uid in user_ids]
+        
+        response = self.session.put(
+            f"{self.BASE_URL}/upload",
+            json={"audienceGroupId": audience_group_id, "audiences": audiences}
+        )
+        self._handle_error(response)
+        
+        return True
+    
+    def remove_users_from_audience(
+        self,
+        audience_group_id: int,
+        user_ids: list[str]
+    ) -> bool:
+        """ลบ User IDs ออกจาก Upload Audience"""
+        audiences = [{"id": uid} for uid in user_ids]
+        
+        response = self.session.put(
+            f"{self.BASE_URL}/upload/byUpload",
+            json={"audienceGroupId": audience_group_id, "audiences": audiences}
+        )
+        self._handle_error(response)
+        
+        return True
+    
+    # ========== DELETE OPERATIONS ==========
+    
+    def delete_audience(self, audience_group_id: int) -> bool:
+        """ลบ Audience"""
+        response = self.session.delete(f"{self.BASE_URL}/{audience_group_id}")
+        self._handle_error(response)
+        
+        return True
+    
+    def cleanup_expired_audiences(self) -> int:
+        """ลบ Audience ที่หมดอายุทั้งหมด"""
+        expired = self.list_audiences(status="EXPIRED")
+        logger.info(f"Found {len(expired)} expired audiences to delete")
+        
+        deleted_count = 0
+        for audience in expired:
+            try:
+                self.delete_audience(audience.audience_group_id)
+                logger.info(f"  Deleted: {audience.description} ({audience.audience_group_id})")
+                deleted_count += 1
+            except AudienceServiceError as e:
+                logger.error(f"  Failed to delete {audience.audience_group_id}: {e}")
+        
+        return deleted_count
+    
+    # ========== NARROWCAST OPERATIONS ==========
+    
+    def narrowcast_to_audience(
+        self,
+        audience_group_id: int,
+        messages: Union[dict, list[dict]],
+        demographic_filter: Optional[dict] = None
+    ) -> str:
+        """
+        ส่ง Narrowcast ไปยัง Audience
+        
+        Returns:
+            request_id สำหรับติดตามผล
+        """
+        if isinstance(messages, dict):
+            messages = [messages]
+        
+        body = {
+            "messages": messages,
+            "recipient": {
+                "type": "audienceGroup",
+                "groupId": audience_group_id
+            }
+        }
+        
+        if demographic_filter:
+            body["filter"] = {"demographic": demographic_filter}
+        
+        response = self.session.post(
+            self.NARROWCAST_URL,
+            json=body,
+            headers={
+                "X-Line-Retry-Key": f"narrowcast-{audience_group_id}-{int(time.time())}"
+            }
+        )
+        self._handle_error(response)
+        
+        return response.headers.get("x-line-request-id", "")
+    
+    def get_narrowcast_progress(self, request_id: str) -> dict:
+        """ตรวจสอบสถานะ Narrowcast"""
+        response = self.session.get(
+            f"https://api.line.me/v2/bot/message/progress/narrowcast",
+            params={"requestId": request_id}
+        )
+        self._handle_error(response)
+        
+        return response.json()
+    
+    # ========== STATISTICS ==========
+    
+    def get_summary(self) -> dict:
+        """สรุปสถิติ Audience ทั้งหมด"""
+        all_audiences = self.list_audiences()
+        
+        summary = {
+            "total": len(all_audiences),
+            "by_status": {},
+            "by_type": {},
+            "total_members": 0,
+            "ready_audiences": []
+        }
+        
+        for audience in all_audiences:
+            # นับตาม Status
+            summary["by_status"][audience.status] = (
+                summary["by_status"].get(audience.status, 0) + 1
+            )
+            
+            # นับตาม Type
+            summary["by_type"][audience.audience_type] = (
+                summary["by_type"].get(audience.audience_type, 0) + 1
+            )
+            
+            # รวม Members
+            summary["total_members"] += audience.audience_count
+            
+            # รายการที่พร้อมใช้งาน
+            if audience.status == "READY":
+                summary["ready_audiences"].append({
+                    "id": audience.audience_group_id,
+                    "description": audience.description,
+                    "count": audience.audience_count
+                })
+        
+        return summary
+    
+    # ========== PRIVATE HELPERS ==========
+    
+    def _parse_audience_info(self, data: dict) -> AudienceInfo:
+        return AudienceInfo(
+            audience_group_id=data.get("audienceGroupId", 0),
+            audience_type=data.get("type", ""),
+            description=data.get("description", ""),
+            status=data.get("status", ""),
+            audience_count=data.get("audienceCount", 0),
+            created=data.get("created", 0),
+            permission=data.get("permission", ""),
+            create_route=data.get("createRoute", ""),
+            is_ifa_audience=data.get("isIfaAudience", False)
+        )
+    
+    def _handle_error(self, response: requests.Response) -> None:
+        if response.status_code >= 400:
+            try:
+                error_data = response.json()
+                message = error_data.get("message", response.text)
+            except Exception:
+                message = response.text
+            
+            raise AudienceServiceError(
+                f"LINE API error {response.status_code}: {message}"
+            )
+    
+    @staticmethod
+    def _chunk_list(lst: list, size: int) -> list[list]:
+        return [lst[i:i + size] for i in range(0, len(lst), size)]
 
-  for (const audienceId of audienceIds) {
-    try {
-      const result = await sendNarrowcast(audienceId, message);
-      results.push({ audienceId, requestId: result.requestId, success: true });
-    } catch (error) {
-      results.push({ audienceId, success: false, error: error.message });
-    }
-    await new Promise(r => setTimeout(r, 1000));
-  }
 
-  return results;
-}
+# ========== ตัวอย่างการใช้งาน ==========
 
-// Narrowcast พร้อม Demographic Filter
-async function sendTargetedCampaign(audienceGroupId, message, demographic) {
-  /*
-  demographic = {
-    age: { gte: 'age_35', lte: 'age_44' },
-    gender: { oneOf: ['male'] },
-    region: { oneOf: ['TH-10'] }, // Bangkok
-    appType: { oneOf: ['IOS', 'ANDROID'] }
-  }
-  */
-
-  return await sendNarrowcast(audienceGroupId, message, { demographic });
-}
-```
-
-### Narrowcast + Audience + A/B Testing
-
-```javascript
-async function runABTest(audienceGroupId, messageA, messageB) {
-  // แบ่ง Audience เป็น 2 กลุ่ม (50/50)
-  const audiences = await audienceManager.get(audienceGroupId);
-  const totalUsers = audiences.audienceGroup?.audienceCount || 0;
-
-  console.log(`Running A/B test on ${totalUsers} users`);
-
-  // สร้าง Narrowcast 2 รอบ พร้อม ratio
-  const resultA = await axios.post(
-    'https://api.line.me/v2/bot/message/narrowcast',
-    {
-      messages: [messageA],
-      recipient: { type: 'audience', audienceGroupId },
-      limit: {
-        type: 'percentage',
-        percentage: 50
-      }
-    },
-    { headers }
-  );
-
-  const resultB = await axios.post(
-    'https://api.line.me/v2/bot/message/narrowcast',
-    {
-      messages: [messageB],
-      recipient: { type: 'audience', audienceGroupId },
-      limit: {
-        type: 'percentage',
-        percentage: 50
-      }
-    },
-    { headers }
-  );
-
-  return {
-    testA: { requestId: resultA.data.requestId, message: 'A' },
-    testB: { requestId: resultB.data.requestId, message: 'B' }
-  };
-}
-
-// ดู Narrowcast Progress
-async function getNarrowcastProgress(requestId) {
-  const response = await axios.get(
-    `https://api.line.me/v2/bot/message/progress/narrowcast?requestId=${requestId}`,
-    { headers }
-  );
-  return response.data;
-}
-
-// รอจนกว่า Narrowcast จะส่งเสร็จ
-async function waitForNarrowcastComplete(requestId, maxWait = 3600000) {
-  const startTime = Date.now();
-
-  while (Date.now() - startTime < maxWait) {
-    const progress = await getNarrowcastProgress(requestId);
-
-    if (progress.phase === 'SUCCEEDED') {
-      return progress;
-    }
-    if (progress.phase === 'FAILED') {
-      throw new Error(`Narrowcast failed: ${progress.errorCode}`);
-    }
-
-    console.log(`Phase: ${progress.phase}, Sent: ${progress.successCount || 0}`);
-    await new Promise(r => setTimeout(r, 30000));
-  }
-
-  throw new Error('Narrowcast timeout');
-}
+if __name__ == "__main__":
+    import json
+    
+    service = AudienceService(os.environ["LINE_CHANNEL_ACCESS_TOKEN"])
+    
+    # สร้าง Upload Audience
+    audience = service.create_upload_audience(
+        "VIP Customers October 2024",
+        [
+            "U4af4980629b0fcfcbf22adf96359dbf8",
+            "U8edia98062abcdef1234567890abcdef"
+        ]
+    )
+    print(f"Created Audience ID: {audience.audience_group_id}")
+    
+    # สรุป Audience
+    summary = service.get_summary()
+    print(f"Total Audiences: {summary['total']}")
+    print(f"Total Members: {summary['total_members']:,}")
+    print(f"By Status: {json.dumps(summary['by_status'], indent=2)}")
 ```
 
 ---
 
-## 13. Audience Size และ Limits
+## 16. ตัวอย่างการใช้งานจริง
 
-### Limits
+### 16.1 Re-engage ผู้ใช้ที่ไม่ Active
 
-| ข้อจำกัด | ค่า |
-|---------|-----|
-| จำนวน Audience Groups สูงสุด | 1,000 |
-| Users ต่อ Upload Audience | สูงสุด 100,000 |
-| Users ต่อ Request (Upload) | สูงสุด 10,000 |
-| ขนาดต่ำสุดสำหรับ Narrowcast | 50 users |
-| Audience Name | สูงสุด 120 ตัวอักษร |
-| Audience อายุสูงสุด | 180 วัน |
+**สถานการณ์:** ธุรกิจ E-commerce ต้องการส่งข้อความกระตุ้นลูกค้าที่ไม่ได้ซื้อสินค้าในช่วง 90 วันที่ผ่านมา
 
-### ตรวจสอบขนาด Audience
+**ขั้นตอนการทำงาน:**
 
-```javascript
-async function checkAudienceSize(audienceGroupId) {
-  const audience = await audienceManager.get(audienceGroupId);
-  const count = audience.audienceGroup?.audienceCount || 0;
+```
+1. Query ข้อมูลจาก Database
+   → ดึง User IDs ที่ last_purchase < (today - 90 days)
+   → กรองเฉพาะคนที่ยังเป็น Follower ของ LINE OA
 
-  const MIN_SIZE = 50;
+2. สร้าง Audience จาก User IDs
+   → สร้าง Upload Audience "Inactive 90 Days"
+   → รอจนกว่า Status = READY
 
-  if (count < MIN_SIZE) {
-    console.warn(`⚠️ Audience ${audienceGroupId} has only ${count} users (minimum: ${MIN_SIZE})`);
-    return { ready: false, count, minRequired: MIN_SIZE };
-  }
+3. ส่ง Narrowcast พร้อม Personalization
+   → ข้อความ: "นานแล้วที่คุณไม่ได้แวะมา! มีโปรโมชั่นพิเศษสำหรับคุณ"
 
-  return { ready: true, count };
-}
-
-// ตรวจสอบก่อน Narrowcast
-async function safeNarrowcast(audienceGroupId, messages) {
-  const sizeCheck = await checkAudienceSize(audienceGroupId);
-
-  if (!sizeCheck.ready) {
-    throw new Error(
-      `Audience too small: ${sizeCheck.count} users (minimum: ${sizeCheck.minRequired})`
-    );
-  }
-
-  const audience = await audienceManager.get(audienceGroupId);
-  if (audience.audienceGroup?.status !== 'READY') {
-    throw new Error(`Audience not ready: status = ${audience.audienceGroup?.status}`);
-  }
-
-  return await sendNarrowcast(audienceGroupId, messages);
-}
-
-// สรุปข้อมูล Audience ทั้งหมด
-async function getAudienceSummary() {
-  const audiences = await audienceManager.listAll();
-
-  const summary = {
-    total: audiences.length,
-    byType: {},
-    byStatus: {},
-    totalUsers: 0
-  };
-
-  for (const a of audiences) {
-    // By Type
-    summary.byType[a.type] = (summary.byType[a.type] || 0) + 1;
-
-    // By Status
-    summary.byStatus[a.status] = (summary.byStatus[a.status] || 0) + 1;
-
-    // Total Users
-    summary.totalUsers += a.audienceCount || 0;
-  }
-
-  return summary;
-}
+4. ติดตามผลและปรับปรุง
+   → ตรวจสอบ Open Rate และ Click Rate
+   → สร้าง Click Audience จาก requestId นั้น
+   → Follow-up เฉพาะคนที่คลิกแต่ยังไม่ซื้อ
 ```
 
----
-
-## 14. Node.js Examples
-
-### Complete Audience Workflow
+**Node.js Implementation:**
 
 ```javascript
-// audience-workflow.js
 const AudienceManager = require('./AudienceManager');
-const User = require('./models/User');
-const Order = require('./models/Order');
+const db = require('./database'); // ตัวอย่าง DB connection
 
-const manager = new AudienceManager();
-
-// ─── สร้าง Audience ทุกประเภทสำหรับ E-commerce ─────────────────────
-
-async function setupEcommerceAudiences() {
-  console.log('Setting up E-commerce Audiences...\n');
-
-  const audiences = {};
-
-  // 1. New Users (เพิ่มเพื่อนใน 30 วัน)
-  const newUsers = await User.find({
-    createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
-    lineUserId: { $exists: true }
-  }).select('lineUserId');
-
-  audiences.newUsers = await manager.upsert(
-    'New Users - 30 Days',
-    newUsers.map(u => u.lineUserId)
-  );
-  console.log(`1. New Users: ${audiences.newUsers.audienceGroupId} (${newUsers.length} users)`);
-
-  // 2. Active Buyers (ซื้อใน 90 วัน)
-  const activeBuyers = await Order.distinct('userId', {
-    createdAt: { $gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) },
-    status: 'delivered'
-  });
-  const activeBuyerUsers = await User.find({
-    _id: { $in: activeBuyers },
-    lineUserId: { $exists: true }
-  }).select('lineUserId');
-
-  audiences.activeBuyers = await manager.upsert(
-    'Active Buyers - 90 Days',
-    activeBuyerUsers.map(u => u.lineUserId)
-  );
-  console.log(`2. Active Buyers: ${audiences.activeBuyers.audienceGroupId}`);
-
-  // 3. High Value Customers (ซื้อ > 5,000 บาทใน 90 วัน)
-  const highValueData = await Order.aggregate([
-    {
-      $match: {
-        createdAt: { $gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) },
-        status: 'delivered'
-      }
-    },
-    {
-      $group: {
-        _id: '$userId',
-        totalSpent: { $sum: '$totalAmount' }
-      }
-    },
-    {
-      $match: { totalSpent: { $gte: 5000 } }
-    }
-  ]);
-
-  const highValueIds = highValueData.map(d => d._id);
-  const highValueUsers = await User.find({
-    _id: { $in: highValueIds },
-    lineUserId: { $exists: true }
-  }).select('lineUserId');
-
-  audiences.highValue = await manager.upsert(
-    'High Value Customers',
-    highValueUsers.map(u => u.lineUserId)
-  );
-  console.log(`3. High Value: ${audiences.highValue.audienceGroupId}`);
-
-  // 4. Inactive Users (ไม่ซื้อใน 90 วัน)
-  const activeBuyerUserIds = activeBuyerUsers.map(u => u._id.toString());
-  const inactiveUsers = await User.find({
-    _id: { $nin: activeBuyerUserIds },
-    createdAt: { $lt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) },
-    lineUserId: { $exists: true }
-  }).select('lineUserId');
-
-  audiences.inactive = await manager.upsert(
-    'Inactive Users - 90 Days',
-    inactiveUsers.map(u => u.lineUserId)
-  );
-  console.log(`4. Inactive: ${audiences.inactive.audienceGroupId}`);
-
-  // 5. VIP Members
-  const vipMembers = await User.find({
-    memberStatus: 'vip',
-    lineUserId: { $exists: true }
-  }).select('lineUserId');
-
-  audiences.vip = await manager.upsert(
-    'VIP Members',
-    vipMembers.map(u => u.lineUserId)
-  );
-  console.log(`5. VIP: ${audiences.vip.audienceGroupId}`);
-
-  console.log('\nAudience setup complete!');
-  return audiences;
-}
-
-// ─── Campaign Functions ────────────────────────────────────────────
-
-// Re-engagement Campaign
-async function runReEngagementCampaign() {
-  const inactiveAudience = await manager.findByDescription('Inactive Users - 90 Days');
-
-  if (!inactiveAudience) {
-    console.error('Inactive audience not found');
+async function reEngageInactiveUsers() {
+  const manager = new AudienceManager(process.env.LINE_CHANNEL_ACCESS_TOKEN);
+  
+  // Step 1: ดึง User IDs ที่ไม่ active
+  const ninetyDaysAgo = new Date();
+  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+  
+  const inactiveUsers = await db.query(`
+    SELECT line_user_id 
+    FROM customers 
+    WHERE last_purchase_date < $1 
+      AND line_user_id IS NOT NULL
+      AND is_blocked = FALSE
+      AND marketing_consent = TRUE
+    ORDER BY last_purchase_date ASC
+  `, [ninetyDaysAgo]);
+  
+  const userIds = inactiveUsers.rows.map(r => r.line_user_id);
+  console.log(`Found ${userIds.length} inactive users`);
+  
+  if (userIds.length < 50) {
+    console.log('Not enough users for Narrowcast (minimum 50)');
     return;
   }
-
-  const sizeCheck = await checkAudienceSize(inactiveAudience.audienceGroupId);
-  if (!sizeCheck.ready) {
-    console.log('Audience too small for campaign');
+  
+  // Step 2: สร้าง Audience
+  const today = new Date().toISOString().split('T')[0];
+  const audienceDescription = `Inactive Users 90+ Days - ${today}`;
+  
+  let audienceId;
+  try {
+    const audience = await manager.createUploadAudience(audienceDescription, userIds);
+    audienceId = audience.audienceGroupId;
+    console.log(`Created Audience: ${audienceId}`);
+    
+    // รอจนพร้อม
+    await manager.waitUntilReady(audienceId);
+  } catch (err) {
+    console.error('Failed to create audience:', err);
     return;
   }
-
-  console.log(`Sending re-engagement to ${sizeCheck.count} users...`);
-
+  
+  // Step 3: ส่ง Narrowcast
   const message = {
     type: 'flex',
-    altText: 'เราคิดถึงคุณ! ส่วนลด 15%',
-    contents: {
-      type: 'bubble',
-      hero: {
-        type: 'image',
-        url: 'https://example.com/comeback.jpg',
-        size: 'full',
-        aspectRatio: '20:13',
-        aspectMode: 'cover'
-      },
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        contents: [
-          { type: 'text', text: '😊 เราคิดถึงคุณ!', weight: 'bold', size: 'xl' },
-          { type: 'text', text: 'กลับมาช้อปกับเราได้เลย รับส่วนลด 15%', wrap: true, color: '#666666', margin: 'sm' },
-          {
-            type: 'text',
-            text: 'ใช้โค้ด: COMEBACK15',
-            size: 'lg',
-            weight: 'bold',
-            color: '#E74C3C',
-            margin: 'md',
-            align: 'center'
-          }
-        ]
-      },
-      footer: {
-        type: 'box',
-        layout: 'vertical',
-        contents: [
-          {
-            type: 'button',
-            action: {
-              type: 'uri',
-              label: 'ช้อปเลย',
-              uri: 'https://yourshop.com?coupon=COMEBACK15'
-            },
-            style: 'primary',
-            color: '#E74C3C'
-          }
-        ]
-      }
-    }
-  };
-
-  const result = await safeNarrowcast(inactiveAudience.audienceGroupId, message);
-  console.log(`Re-engagement campaign sent: ${result.requestId}`);
-  return result.requestId;
-}
-
-// VIP Exclusive Campaign
-async function runVIPExclusiveSale(saleData) {
-  const vipAudience = await manager.findByDescription('VIP Members');
-
-  if (!vipAudience) throw new Error('VIP audience not found');
-
-  const message = {
-    type: 'flex',
-    altText: `VIP EXCLUSIVE: ${saleData.title}`,
+    altText: 'มีโปรโมชั่นพิเศษสำหรับคุณ!',
     contents: {
       type: 'bubble',
       header: {
         type: 'box',
         layout: 'vertical',
-        backgroundColor: '#2C3E50',
-        paddingAll: 'lg',
         contents: [
-          { type: 'text', text: '⭐ VIP EXCLUSIVE', color: '#FFD700', size: 'sm' },
-          { type: 'text', text: saleData.title, color: '#FFFFFF', weight: 'bold', size: 'xl' }
-        ]
+          {
+            type: 'text',
+            text: 'เราคิดถึงคุณ! 💖',
+            size: 'xl',
+            weight: 'bold',
+            color: '#ffffff'
+          }
+        ],
+        backgroundColor: '#FF5555'
       },
       body: {
         type: 'box',
         layout: 'vertical',
         contents: [
-          { type: 'text', text: saleData.description, wrap: true },
           {
             type: 'text',
-            text: `ลด ${saleData.discountPercent}%`,
-            size: 'xxl',
-            weight: 'bold',
-            color: '#E74C3C',
-            margin: 'lg',
-            align: 'center'
+            text: 'นานแล้วที่คุณไม่ได้แวะมา\nเรามีโปรโมชั่นพิเศษสำหรับคุณ!',
+            wrap: true
           },
           {
             type: 'text',
-            text: `สิ้นสุด: ${new Date(saleData.endDate).toLocaleDateString('th-TH')}`,
-            size: 'sm',
-            color: '#999999',
-            margin: 'md',
-            align: 'center'
+            text: 'ส่วนลด 20% สำหรับการสั่งซื้อครั้งถัดไป',
+            weight: 'bold',
+            color: '#FF5555',
+            margin: 'md'
           }
         ]
       },
@@ -1367,147 +2382,480 @@ async function runVIPExclusiveSale(saleData) {
             type: 'button',
             action: {
               type: 'uri',
-              label: 'ช้อปสินค้า VIP',
-              uri: saleData.shopUrl
+              label: 'ช้อปเลย!',
+              uri: 'https://example.com/promo?utm_source=line&utm_campaign=reengagement'
             },
             style: 'primary',
-            color: '#2C3E50'
+            color: '#FF5555'
           }
         ]
       }
     }
   };
-
-  return await safeNarrowcast(vipAudience.audienceGroupId, message);
+  
+  try {
+    const requestId = await manager.narrowcastToAudience(audienceId, message);
+    console.log(`Narrowcast sent! requestId: ${requestId}`);
+    
+    // บันทึก requestId สำหรับ Follow-up
+    await db.query(`
+      INSERT INTO campaign_tracking (
+        campaign_name, audience_id, request_id, sent_at
+      ) VALUES ($1, $2, $3, NOW())
+    `, [audienceDescription, audienceId, requestId]);
+    
+    // รอ 2 วันแล้วสร้าง Click Audience สำหรับ Follow-up
+    setTimeout(async () => {
+      const clickAudience = await manager.createClickAudience(
+        `Clicked Re-engage ${today}`,
+        requestId,
+        'https://example.com/promo'
+      );
+      console.log(`Click Audience created: ${clickAudience.audienceGroupId}`);
+    }, 2 * 24 * 60 * 60 * 1000); // 2 วัน
+    
+  } catch (err) {
+    console.error('Failed to send Narrowcast:', err);
+  }
 }
 
-// ─── Analytics ────────────────────────────────────────────
-
-async function getAudienceAnalytics() {
-  const audiences = await manager.listAll();
-
-  const report = audiences.map(a => ({
-    id: a.audienceGroupId,
-    name: a.description,
-    type: a.type,
-    status: a.status,
-    size: a.audienceCount || 0,
-    createdAt: new Date(a.created * 1000).toLocaleDateString('th-TH'),
-    age: Math.floor((Date.now() - a.created * 1000) / (24 * 60 * 60 * 1000)) + ' วัน'
-  }));
-
-  console.table(report);
-
-  const summary = {
-    totalAudiences: report.length,
-    totalUniqueUsers: report.reduce((s, a) => s + a.size, 0),
-    byType: report.reduce((acc, a) => {
-      acc[a.type] = (acc[a.type] || 0) + 1;
-      return acc;
-    }, {}),
-    readyAudiences: report.filter(a => a.status === 'READY').length
-  };
-
-  return { report, summary };
-}
-
-module.exports = {
-  setupEcommerceAudiences,
-  runReEngagementCampaign,
-  runVIPExclusiveSale,
-  getAudienceAnalytics
-};
+// รัน Cron Job ทุกวันอาทิตย์ เวลา 10:00 น.
+// cron.schedule('0 10 * * 0', reEngageInactiveUsers);
+reEngageInactiveUsers();
 ```
 
-### ตัวอย่างการใช้งาน
+---
+
+### 16.2 Target ลูกค้าที่ใช้คูปองสำหรับ Follow-up
+
+**สถานการณ์:** ส่ง Coupon ผ่าน Broadcast แล้วต้องการ Follow-up เฉพาะคนที่ใช้คูปองแต่ยังไม่ได้ซื้อซ้ำ
+
+**Python Implementation:**
+
+```python
+import os
+import time
+from datetime import datetime, timedelta
+from AudienceService import AudienceService, AudienceServiceError
+import psycopg2  # ตัวอย่าง PostgreSQL
+
+def target_coupon_users_for_followup():
+    """
+    ส่ง Follow-up ให้ลูกค้าที่ใช้คูปองแต่ยังไม่ซื้อซ้ำใน 7 วัน
+    """
+    service = AudienceService(os.environ["LINE_CHANNEL_ACCESS_TOKEN"])
+    
+    # Step 1: ดึง request_id ของ Broadcast Coupon ที่ส่งไปเมื่อ 7 วันที่แล้ว
+    # (บันทึกไว้ตอนส่ง Broadcast)
+    conn = psycopg2.connect(os.environ["DATABASE_URL"])
+    cur = conn.cursor()
+    
+    seven_days_ago = datetime.now() - timedelta(days=7)
+    cur.execute("""
+        SELECT request_id, campaign_name 
+        FROM broadcast_campaigns 
+        WHERE sent_at >= %s 
+          AND campaign_type = 'COUPON'
+          AND followup_sent = FALSE
+    """, (seven_days_ago,))
+    
+    campaigns = cur.fetchall()
+    
+    for request_id, campaign_name in campaigns:
+        print(f"\nProcessing campaign: {campaign_name}")
+        
+        # Step 2: สร้าง Click Audience (คนที่คลิกดูคูปอง)
+        try:
+            click_audience = service.create_click_audience(
+                description=f"Clicked Coupon: {campaign_name}",
+                request_id=request_id
+            )
+            
+            # รอจนพร้อม
+            click_audience = service.wait_until_ready(
+                click_audience.audience_group_id,
+                timeout_seconds=300
+            )
+            
+            print(f"Click Audience: {click_audience.audience_count} users")
+            
+        except AudienceServiceError as e:
+            print(f"Failed to create click audience: {e}")
+            continue
+        
+        # Step 3: ดึงรายชื่อลูกค้าที่ซื้อแล้ว (Exclude)
+        cur.execute("""
+            SELECT line_user_id 
+            FROM orders 
+            WHERE created_at >= %s 
+              AND coupon_code IS NOT NULL
+              AND line_user_id IS NOT NULL
+        """, (seven_days_ago,))
+        
+        purchased_users = [row[0] for row in cur.fetchall()]
+        print(f"Users who already purchased: {len(purchased_users)}")
+        
+        # Step 4: สร้าง Audience คนที่ซื้อแล้ว (เพื่อ Exclude)
+        if len(purchased_users) >= 50:
+            try:
+                purchased_audience = service.create_upload_audience(
+                    description=f"Purchased after Coupon: {campaign_name}",
+                    user_ids=purchased_users
+                )
+                purchased_id = purchased_audience.audience_group_id
+                service.wait_until_ready(purchased_id)
+            except AudienceServiceError as e:
+                print(f"Failed to create purchased audience: {e}")
+                purchased_id = None
+        else:
+            purchased_id = None
+        
+        # Step 5: ส่ง Narrowcast (Click - Purchased)
+        if purchased_id:
+            # ส่งให้คนที่คลิกแต่ยังไม่ซื้อ
+            recipient = {
+                "type": "difference",
+                "minuend": {
+                    "type": "audienceGroup",
+                    "groupId": click_audience.audience_group_id
+                },
+                "subtrahend": {
+                    "type": "audienceGroup",
+                    "groupId": purchased_id
+                }
+            }
+        else:
+            # ถ้าไม่มีคนซื้อ ส่งให้ทุกคนที่คลิก
+            recipient = {
+                "type": "audienceGroup",
+                "groupId": click_audience.audience_group_id
+            }
+        
+        # ส่งข้อความ Follow-up
+        message = {
+            "type": "text",
+            "text": f"สวัสดีครับ! คูปอง {campaign_name} ของคุณกำลังจะหมดอายุในอีก 3 วัน\nอย่าลืมใช้สิทธิ์นะครับ! 🛒"
+        }
+        
+        try:
+            # Narrowcast แบบใช้ recipient ที่กำหนดเอง
+            import requests
+            headers = {
+                "Authorization": f"Bearer {os.environ['LINE_CHANNEL_ACCESS_TOKEN']}",
+                "Content-Type": "application/json",
+                "X-Line-Retry-Key": f"followup-{request_id}-{int(time.time())}"
+            }
+            
+            resp = requests.post(
+                "https://api.line.me/v2/bot/message/narrowcast",
+                json={
+                    "messages": [message],
+                    "recipient": recipient
+                },
+                headers=headers
+            )
+            resp.raise_for_status()
+            
+            followup_request_id = resp.headers.get("x-line-request-id")
+            print(f"Follow-up sent! requestId: {followup_request_id}")
+            
+            # อัปเดต DB ว่าส่ง Follow-up แล้ว
+            cur.execute("""
+                UPDATE broadcast_campaigns 
+                SET followup_sent = TRUE, followup_request_id = %s
+                WHERE request_id = %s
+            """, (followup_request_id, request_id))
+            conn.commit()
+            
+        except Exception as e:
+            print(f"Failed to send follow-up: {e}")
+            conn.rollback()
+    
+    cur.close()
+    conn.close()
+
+target_coupon_users_for_followup()
+```
+
+---
+
+### 16.3 Exclude ผู้ซื้อล่าสุดออกจากโปรโมชั่น
+
+**สถานการณ์:** ต้องการส่ง Broadcast โปรโมชั่น "ลด 30%" แต่ต้องการ Exclude คนที่เพิ่งซื้อในช่วง 14 วันที่ผ่านมา เพื่อไม่ให้ลูกค้ารู้สึกว่าซื้อแพงกว่าคนอื่น
+
+**Node.js Implementation:**
 
 ```javascript
-// main.js
-const {
-  setupEcommerceAudiences,
-  runReEngagementCampaign,
-  runVIPExclusiveSale,
-  getAudienceAnalytics
-} = require('./audience-workflow');
+const AudienceManager = require('./AudienceManager');
+const db = require('./database');
 
-async function main() {
-  // 1. ตั้งค่า Audiences ทั้งหมด
-  console.log('=== Setting up Audiences ===');
-  const audiences = await setupEcommerceAudiences();
-
-  // 2. รัน Re-engagement Campaign
-  console.log('\n=== Running Re-engagement Campaign ===');
-  const reEngagementId = await runReEngagementCampaign();
-  if (reEngagementId) {
-    console.log(`Campaign sent: ${reEngagementId}`);
+async function sendPromoExcludingRecentBuyers() {
+  const manager = new AudienceManager(process.env.LINE_CHANNEL_ACCESS_TOKEN);
+  
+  // Step 1: ดึงลูกค้าที่ซื้อใน 14 วันที่ผ่านมา
+  const fourteenDaysAgo = new Date();
+  fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+  
+  const recentBuyers = await db.query(`
+    SELECT DISTINCT line_user_id 
+    FROM orders 
+    WHERE created_at > $1 
+      AND line_user_id IS NOT NULL
+  `, [fourteenDaysAgo]);
+  
+  const recentBuyerIds = recentBuyers.rows.map(r => r.line_user_id);
+  console.log(`Recent buyers to exclude: ${recentBuyerIds.length}`);
+  
+  let excludeAudienceId = null;
+  
+  // Step 2: สร้าง Exclude Audience (ถ้ามีพอ)
+  if (recentBuyerIds.length >= 50) {
+    const excludeAudience = await manager.createUploadAudience(
+      'Recent Buyers 14 Days - Exclude',
+      recentBuyerIds
+    );
+    excludeAudienceId = excludeAudience.audienceGroupId;
+    await manager.waitUntilReady(excludeAudienceId);
+    console.log(`Exclude Audience created: ${excludeAudienceId}`);
   }
-
-  // 3. ส่ง VIP Sale
-  console.log('\n=== VIP Exclusive Sale ===');
-  const vipResult = await runVIPExclusiveSale({
-    title: 'YEAR END SALE 2024',
-    description: 'สินค้าคัดสรรสำหรับสมาชิก VIP เท่านั้น',
-    discountPercent: 30,
-    endDate: new Date('2024-12-31'),
-    shopUrl: 'https://yourshop.com/vip-sale'
-  });
-  console.log('VIP Sale sent:', vipResult?.requestId);
-
-  // 4. ดู Analytics
-  console.log('\n=== Audience Analytics ===');
-  const analytics = await getAudienceAnalytics();
-  console.log('\nSummary:', analytics.summary);
+  
+  // Step 3: เตรียม Narrowcast body
+  const promotionMessage = {
+    type: 'flex',
+    altText: 'โปรโมชั่นพิเศษ! ลด 30% ทุกสินค้า',
+    contents: {
+      type: 'bubble',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'text',
+            text: '⚡ Flash Sale!',
+            size: 'xxl',
+            weight: 'bold',
+            color: '#FF0000'
+          },
+          {
+            type: 'text',
+            text: 'ลด 30% ทุกสินค้า',
+            size: 'xl',
+            weight: 'bold'
+          },
+          {
+            type: 'text',
+            text: 'วันนี้เท่านั้น! หมดเที่ยงคืน',
+            color: '#999999'
+          }
+        ]
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'button',
+            action: {
+              type: 'uri',
+              label: 'ช้อปเลย!',
+              uri: 'https://example.com/flash-sale'
+            },
+            style: 'primary'
+          }
+        ]
+      }
+    }
+  };
+  
+  // Step 4: กำหนด Recipient แบบ Broadcast ทุกคน ยกเว้น Recent Buyers
+  let requestId;
+  
+  if (excludeAudienceId) {
+    // Broadcast แบบ Narrowcast ที่ Exclude กลุ่ม
+    // ส่งให้ทุก Follower ยกเว้น Recent Buyers
+    const response = await axios.post(
+      'https://api.line.me/v2/bot/message/narrowcast',
+      {
+        messages: [promotionMessage],
+        recipient: {
+          type: 'difference',
+          minuend: {
+            type: 'all'  // ทุก Follower
+          },
+          subtrahend: {
+            type: 'audienceGroup',
+            groupId: excludeAudienceId
+          }
+        }
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    requestId = response.headers['x-line-request-id'];
+  } else {
+    // ไม่มีคนซื้อล่าสุดพอ → Broadcast ให้ทุกคนเลย
+    const response = await axios.post(
+      'https://api.line.me/v2/bot/message/broadcast',
+      { messages: [promotionMessage] },
+      {
+        headers: {
+          'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    requestId = response.headers['x-line-request-id'];
+  }
+  
+  console.log(`Promotion sent! requestId: ${requestId}`);
+  
+  // Step 5: ติดตามผล
+  setTimeout(async () => {
+    const progress = await manager.getNarrowcastProgress(requestId);
+    console.log('Promotion Results:', progress);
+    
+    // สร้าง Click Audience สำหรับ Retargeting ในอนาคต
+    if (progress.phase === 'succeeded') {
+      const clickAudience = await manager.createClickAudience(
+        'Clicked Flash Sale',
+        requestId,
+        'https://example.com/flash-sale'
+      );
+      console.log(`Created Click Audience for retargeting: ${clickAudience.audienceGroupId}`);
+    }
+  }, 24 * 60 * 60 * 1000); // 1 วัน
+  
+  return requestId;
 }
 
-main().catch(console.error);
+sendPromoExcludingRecentBuyers()
+  .then(id => console.log('Done! requestId:', id))
+  .catch(err => console.error('Error:', err));
 ```
 
 ---
 
-## สรุป Audience API
+### ตาราง Error Codes ที่พบบ่อย
 
-### กลยุทธ์การใช้ Audience
-
-```
-1. Upload Audience
-   └─> ควบคุมได้เต็มที่ (Custom Segments)
-   └─> เหมาะกับ: VIP, Members, Custom Lists
-
-2. Click Audience
-   └─> Re-target คนที่สนใจ
-   └─> เหมาะกับ: Remarketing
-
-3. Impression Audience
-   └─> คนที่เห็นข้อความ
-   └─> เหมาะกับ: Follow-up campaigns
-
-4. Video Audience
-   └─> คนที่ดู Video
-   └─> เหมาะกับ: Video marketing
-
-5. Chat Tag Audience
-   └─> ใช้ Tags จัดกลุ่ม
-   └─> เหมาะกับ: Customer segments
-
-6. Friend Path Audience
-   └─> คนที่เพิ่งเพิ่มเพื่อน
-   └─> เหมาะกับ: Welcome campaigns
-```
-
-| สิ่งที่ต้องจำ | ความสำคัญ |
-|-------------|---------|
-| ขั้นต่ำ 50 users ถึง Narrowcast ได้ | สูงมาก |
-| อัพเดต Audience ก่อน Campaign | สูง |
-| ตรวจสอบ Status = READY | สูง |
-| ลบ Audience เก่าเพื่อประหยัด Quota | ปานกลาง |
-| ใช้ Click/Impression สำหรับ Remarketing | ปานกลาง |
+| Error Code | HTTP Status | ความหมาย | วิธีแก้ไข |
+|------------|-------------|----------|----------|
+| 401 | 401 | Token ไม่ถูกต้องหรือหมดอายุ | ต่ออายุ Channel Access Token |
+| 400 | 400 | Request body ไม่ถูกต้อง | ตรวจสอบ JSON format |
+| 404 | 404 | ไม่พบ Audience ID | ตรวจสอบ audienceGroupId |
+| 409 | 409 | Audience มีสถานะ EXPIRED | สร้าง Audience ใหม่ |
+| 429 | 429 | Rate Limit เกิน | รอแล้วส่งใหม่ |
+| 500 | 500 | LINE Server Error | ลองใหม่ในภายหลัง |
 
 ---
 
-*จบ Part 55: Audience API*
+### Best Practices สรุป
 
-*ดูส่วนอื่นๆ:*
-- *[Part 51: Rich Menu API ขั้นสูง](part-051-rich-menu-api-advanced.md)*
-- *[Part 52: LINE Login](part-052-line-login.md)*
-- *[Part 53: LINE Pay](part-053-line-pay.md)*
-- *[Part 54: Notification Channel](part-054-notification-channel.md)*
+```
+✅ DO:
+  - ตรวจสอบ Status ก่อนใช้ Audience (ต้องเป็น READY)
+  - ลบ Audience ที่ไม่ใช้แล้วเป็นประจำ
+  - แบ่ง Upload เป็น batch ไม่เกิน 10,000
+  - เก็บ requestId ทุกครั้งที่ Broadcast
+  - มี try-catch รอบ API calls ทุกที่
+  - บันทึก audit log สำหรับ PDPA compliance
+  - ตรวจสอบ audience count ก่อน Narrowcast
+
+❌ DON'T:
+  - อย่าใช้ Audience ที่ยังเป็น IN_PROGRESS
+  - อย่าเก็บ Audience เกิน 1,000 กลุ่มโดยไม่ลบของเก่า
+  - อย่า Narrowcast โดยไม่ตรวจสอบขนาด Audience
+  - อย่าเพิ่ม User ที่ไม่ได้ให้ Consent
+  - อย่า Share Audience กับบุคคลที่สาม
+```
+
+---
+
+## 17. แบบฝึกหัดท้ายบท
+
+### แบบฝึกหัดที่ 1: สร้าง Audience Pipeline อัตโนมัติ
+
+**โจทย์:** สร้าง Node.js script ที่:
+1. ดึงรายชื่อลูกค้าที่สมัครสมาชิกใหม่ใน 7 วันที่ผ่านมาจาก Database
+2. สร้าง Upload Audience ชื่อ "New Members - [วันที่]"
+3. รอจนกว่า Audience พร้อม
+4. ส่ง Welcome Narrowcast
+5. บันทึก requestId ลง Database
+
+**Hint:**
+```javascript
+// โครงสร้างที่แนะนำ
+async function newMemberCampaign() {
+  // 1. Query DB
+  const newMembers = await db.query(/* SQL */);
+  
+  // 2. สร้าง Audience
+  const audience = await manager.createUploadAudience(/* ... */);
+  
+  // 3. Wait for ready
+  await manager.waitUntilReady(/* ... */);
+  
+  // 4. Send Narrowcast
+  const requestId = await manager.narrowcastToAudience(/* ... */);
+  
+  // 5. Save to DB
+  await db.query(/* INSERT */);
+}
+```
+
+---
+
+### แบบฝึกหัดที่ 2: Audience Analytics Dashboard
+
+**โจทย์:** สร้าง Python script ที่แสดงสรุปรายงาน Audience ทั้งหมด:
+- จำนวนกลุ่มแยกตาม Type
+- กลุ่มที่ใหญ่ที่สุด 5 กลุ่ม
+- กลุ่มที่กำลังจะหมดอายุใน 30 วัน
+- Total Reach (ผลรวม audience count ทั้งหมด)
+
+---
+
+### แบบฝึกหัดที่ 3: PDPA-Compliant Opt-out Handler
+
+**โจทย์:** เมื่อผู้ใช้ส่งข้อความ "ยกเลิกการรับข่าวสาร" ให้:
+1. บันทึก Opt-out ลง Database
+2. ลบ User ID ออกจาก Audience ทุกกลุ่มที่เป็น Upload Audience
+3. ส่งข้อความยืนยันกลับ
+
+---
+
+### คำถามทบทวน
+
+1. Click Audience และ Impression Audience ต่างกันอย่างไร? ควรใช้เมื่อไหร่?
+2. ทำไม Audience ถึงมีอายุแค่ 180 วัน และควรจัดการอย่างไร?
+3. การรวม Audience แบบ Union, Difference, Intersection ใช้สำหรับ Use Case อะไร?
+4. ข้อกำหนด PDPA ที่สำคัญในการใช้ Audience API มีอะไรบ้าง?
+5. ถ้าต้องการ Upload Audience 500,000 คน ควรทำอย่างไร?
+
+---
+
+## สรุป
+
+Audience API เป็นเครื่องมือที่ทรงพลังสำหรับการทำ Targeted Marketing ผ่าน LINE OA สิ่งสำคัญที่ควรจำ:
+
+| หัวข้อ | สรุป |
+|--------|------|
+| ประเภท Audience | Upload, Click, Impression, Video View, Chat Tag, Add Friend |
+| ขนาดขั้นต่ำ | 50 คน สำหรับ Narrowcast |
+| อายุ Audience | 180 วัน (ต้องต่ออายุโดยสร้างใหม่) |
+| Batch Upload | แบ่งทีละ 10,000 User IDs |
+| PDPA | ต้องมี Consent ก่อนเพิ่มใน Audience |
+| Best Practice | เก็บ requestId → สร้าง Click/Impression Audience → Follow-up |
+
+การเข้าใจ Audience API อย่างถ่องแท้จะช่วยให้ธุรกิจสามารถส่งข้อความที่ถูกคน ถูกเวลา ในปริมาณที่เหมาะสม เพิ่ม ROI ของแคมเปญ LINE OA ได้อย่างมีนัยสำคัญ
+
+---
+
+**ส่วนถัดไป:** ส่วนที่ 56 - Narrowcast API ขั้นสูงและ Demographic Targeting
+
+---
+
+*หมายเหตุ: ตัวอย่าง User IDs และ requestIds ในเอกสารนี้เป็น placeholder สำหรับการเรียนรู้เท่านั้น ในการใช้งานจริงต้องใช้ค่าที่ได้จากระบบ LINE จริง*
