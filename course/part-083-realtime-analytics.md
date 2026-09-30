@@ -1914,3 +1914,129 @@ ROI ของ Real-time Analytics:
 ---
 
 *จบ Part 83: Real-time Analytics สำหรับ LINE Bots (ฉบับสมบูรณ์)*
+
+---
+
+## 13. Event Schema Registry
+
+### 13.1 Avro Schema สำหรับ Kafka
+
+```json
+{
+  "type": "record",
+  "name": "LineBotEvent",
+  "namespace": "com.linebot.events",
+  "fields": [
+    {"name": "event_id", "type": "string"},
+    {"name": "event_type", "type": {"type": "enum", "name": "EventType", "symbols": ["message", "follow", "unfollow", "postback", "purchase"]}},
+    {"name": "user_id", "type": "string"},
+    {"name": "group_id", "type": ["null", "string"], "default": null},
+    {"name": "timestamp", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+    {"name": "message_type", "type": ["null", "string"], "default": null},
+    {"name": "message_text", "type": ["null", "string"], "default": null},
+    {"name": "response_time_ms", "type": "int", "default": 0},
+    {"name": "error_occurred", "type": "boolean", "default": false},
+    {"name": "metadata", "type": {"type": "map", "values": "string"}, "default": {}}
+  ]
+}
+```
+
+```javascript
+// src/analytics/SchemaRegistry.js
+const { SchemaRegistry } = require('@kafkajs/confluent-schema-registry');
+
+class EventSchemaRegistry {
+  constructor(registryUrl) {
+    this.registry = new SchemaRegistry({ host: registryUrl });
+    this.schemaIds = {};
+  }
+  
+  async registerSchema(subject, schema) {
+    const id = await this.registry.register({
+      type: 'AVRO',
+      schema: JSON.stringify(schema),
+    }, { subject });
+    
+    this.schemaIds[subject] = id;
+    console.log(`Registered schema for ${subject}: id=${id.id}`);
+    return id;
+  }
+  
+  async encode(subject, payload) {
+    if (!this.schemaIds[subject]) {
+      const id = await this.registry.getLatestSchemaId(subject);
+      this.schemaIds[subject] = { id };
+    }
+    
+    return this.registry.encode(this.schemaIds[subject].id, payload);
+  }
+  
+  async decode(buffer) {
+    return this.registry.decode(buffer);
+  }
+}
+
+module.exports = EventSchemaRegistry;
+```
+
+---
+
+## 14. Alerting Rules Complete
+
+```yaml
+# monitoring/prometheus/alert_rules/analytics.yml
+groups:
+- name: linebot-analytics-alerts
+  interval: 30s
+  rules:
+  
+  - alert: MessageVolumeAnomaly
+    expr: |
+      abs(
+        rate(linebot_messages_total[5m]) - 
+        avg_over_time(rate(linebot_messages_total[5m])[1h:5m])
+      ) / 
+      stddev_over_time(rate(linebot_messages_total[5m])[1h:5m]) > 3
+    for: 5m
+    labels:
+      severity: warning
+      team: analytics
+    annotations:
+      summary: "Unusual message volume (Z-score > 3)"
+      description: "Message volume is significantly different from normal pattern"
+
+  - alert: KafkaConsumerLagHigh
+    expr: kafka_consumer_group_lag > 50000
+    for: 10m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Kafka consumer lag very high: {{ $value }} messages"
+      runbook: "https://runbooks.internal/kafka-consumer-lag"
+
+  - alert: ClickHouseQuerySlow
+    expr: clickhouse_query_duration_ms_p99 > 5000
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "ClickHouse p99 query time > 5 seconds"
+
+  - alert: FunnelConversionDrop
+    expr: |
+      (
+        sum(increase(linebot_purchases_total[1h])) / 
+        sum(increase(linebot_messages_total[1h]))
+      ) < 0.005
+    for: 30m
+    labels:
+      severity: warning
+      team: business
+    annotations:
+      summary: "Purchase conversion rate below 0.5%"
+      description: "May indicate product/checkout issues"
+```
+
+---
+
+*เนื้อหาเพิ่มเติม Part 83: Real-time Analytics สิ้นสุด*

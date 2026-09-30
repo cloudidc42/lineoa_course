@@ -1732,3 +1732,495 @@ Phase 3: Full local deployment     → Cost ↓ 70%, full data privacy
 ---
 
 *จบ Part 85: Custom AI Models สำหรับ LINE Bots*
+
+---
+
+## 12. Production Deployment Pipeline
+
+### 12.1 Model Registry API
+
+```python
+# services/model-registry/src/registry.py
+from fastapi import FastAPI, HTTPException, UploadFile
+from pydantic import BaseModel
+import mlflow
+from mlflow.tracking import MlflowClient
+import json
+
+app = FastAPI(title="LINE Bot Model Registry")
+client = MlflowClient()
+
+class ModelDeployRequest(BaseModel):
+    model_name: str
+    version: int
+    environment: str  # staging, production
+    
+class InferenceRequest(BaseModel):
+    model_name: str
+    inputs: dict
+    user_id: str
+
+@app.post("/models/deploy")
+async def deploy_model(request: ModelDeployRequest):
+    """Deploy model ไปยัง environment"""
+    
+    try:
+        if request.environment == 'production':
+            # Archive existing production model
+            client.transition_model_version_stage(
+                name=request.model_name,
+                version=request.version,
+                stage="Production",
+                archive_existing_versions=True
+            )
+        elif request.environment == 'staging':
+            client.transition_model_version_stage(
+                name=request.model_name,
+                version=request.version,
+                stage="Staging"
+            )
+        
+        return {
+            "status": "success",
+            "model_name": request.model_name,
+            "version": request.version,
+            "environment": request.environment
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/models/{model_name}/production")
+async def get_production_model_info(model_name: str):
+    """ดึงข้อมูล production model"""
+    
+    versions = client.get_latest_versions(model_name, stages=["Production"])
+    
+    if not versions:
+        raise HTTPException(status_code=404, detail=f"No production model found: {model_name}")
+    
+    version = versions[0]
+    
+    return {
+        "model_name": model_name,
+        "version": version.version,
+        "run_id": version.run_id,
+        "created_at": version.creation_timestamp,
+        "metrics": client.get_run(version.run_id).data.metrics,
+        "params": client.get_run(version.run_id).data.params,
+    }
+
+@app.post("/models/predict")
+async def predict(request: InferenceRequest):
+    """Real-time prediction endpoint"""
+    
+    import time
+    start = time.time()
+    
+    try:
+        # Load model from registry
+        model = mlflow.pyfunc.load_model(
+            f"models:/{request.model_name}/Production"
+        )
+        
+        # Predict
+        result = model.predict(request.inputs)
+        duration_ms = (time.time() - start) * 1000
+        
+        return {
+            "prediction": result,
+            "model_name": request.model_name,
+            "duration_ms": duration_ms,
+            "user_id": request.user_id
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8080)
+```
+
+### 12.2 Inference Service with Caching
+
+```python
+# services/ai-inference/src/inference_service.py
+import asyncio
+import time
+import redis
+import json
+import hashlib
+from typing import Optional, Dict, Any
+
+class InferenceService:
+    """
+    High-performance inference service with caching
+    """
+    
+    def __init__(self, model_registry, redis_client, config):
+        self.registry = model_registry
+        self.redis = redis_client
+        self.config = config
+        self.models = {}  # In-memory model cache
+        
+        # Cache TTLs
+        self.cache_ttls = {
+            'rag_response': 300,      # 5 minutes (conversation varies)
+            'intent': 60,             # 1 minute
+            'recommendation': 3600,   # 1 hour
+            'churn_prediction': 86400, # 24 hours
+        }
+    
+    async def predict_intent(self, text: str, user_id: str) -> Dict:
+        """ทำนาย intent พร้อม caching"""
+        
+        cache_key = f"intent:{hashlib.md5(text.encode()).hexdigest()}"
+        
+        # Check cache
+        cached = await self.get_cache(cache_key)
+        if cached:
+            return {**cached, 'from_cache': True}
+        
+        start = time.time()
+        
+        model = await self.get_model('ThaiIntentClassifier')
+        intent, confidence = model.predict(text)
+        
+        result = {
+            'intent': intent,
+            'confidence': float(confidence),
+            'latency_ms': (time.time() - start) * 1000,
+            'from_cache': False,
+        }
+        
+        # Cache the result
+        await self.set_cache(cache_key, result, self.cache_ttls['intent'])
+        
+        return result
+    
+    async def get_recommendations(self, user_id: str, n: int = 5) -> Dict:
+        """Get personalized recommendations"""
+        
+        cache_key = f"recs:{user_id}:{n}"
+        
+        cached = await self.get_cache(cache_key)
+        if cached:
+            return {**cached, 'from_cache': True}
+        
+        model = await self.get_model('Recommender')
+        recommendations = model.get_recommendations(user_id, n)
+        
+        result = {
+            'user_id': user_id,
+            'recommendations': recommendations,
+            'from_cache': False,
+        }
+        
+        await self.set_cache(cache_key, result, self.cache_ttls['recommendation'])
+        
+        return result
+    
+    async def generate_rag_response(self, query: str, user_id: str, 
+                                     chat_history: list = None) -> Dict:
+        """Generate RAG response (not cached due to conversation context)"""
+        
+        start = time.time()
+        
+        rag_system = await self.get_model('RAGSystem')
+        response = rag_system.generate_response(query, chat_history)
+        
+        return {
+            'response': response,
+            'user_id': user_id,
+            'latency_ms': (time.time() - start) * 1000,
+        }
+    
+    async def get_model(self, model_name: str):
+        """Load model with in-memory caching"""
+        
+        if model_name not in self.models:
+            self.models[model_name] = await self.load_model(model_name)
+        
+        return self.models[model_name]
+    
+    async def load_model(self, model_name: str):
+        """Load model from registry"""
+        import mlflow.pyfunc
+        
+        model_uri = f"models:/{model_name}/Production"
+        return mlflow.pyfunc.load_model(model_uri)
+    
+    async def get_cache(self, key: str) -> Optional[Dict]:
+        try:
+            value = self.redis.get(key)
+            if value:
+                return json.loads(value)
+        except Exception:
+            pass
+        return None
+    
+    async def set_cache(self, key: str, value: Dict, ttl: int):
+        try:
+            self.redis.setex(key, ttl, json.dumps(value))
+        except Exception as e:
+            print(f"Cache set failed: {e}")
+```
+
+---
+
+## 13. Training Data Pipeline
+
+### 13.1 Conversation Data Collector
+
+```python
+# ml/data/conversation_collector.py
+"""
+เก็บ conversation data จาก LINE Bot สำหรับ training
+"""
+
+import json
+import asyncio
+from datetime import datetime
+from typing import List, Dict
+
+class ConversationDataCollector:
+    """
+    เก็บ conversations ที่มีคุณภาพสำหรับ fine-tuning
+    """
+    
+    def __init__(self, db, storage_path='./data/conversations'):
+        self.db = db
+        self.storage_path = storage_path
+        self.quality_threshold = 4.0  # Rating 4/5 ขึ้นไป
+    
+    async def collect_training_conversations(self, 
+                                              min_turns: int = 3,
+                                              min_rating: float = 4.0) -> List[Dict]:
+        """
+        ดึง conversations ที่ผ่าน quality filter
+        """
+        result = await self.db.query("""
+            SELECT 
+                c.session_id,
+                c.user_id,
+                json_agg(
+                    json_build_object(
+                        'role', CASE WHEN m.direction = 'inbound' THEN 'user' ELSE 'assistant' END,
+                        'content', m.message_content->>'text',
+                        'timestamp', m.created_at
+                    ) ORDER BY m.created_at
+                ) as turns,
+                avg(f.rating) as avg_rating,
+                count(m.id) as turn_count
+            FROM chat_sessions c
+            JOIN messages m ON c.id = m.session_id
+            LEFT JOIN conversation_feedback f ON c.session_id = f.session_id
+            WHERE m.message_content->>'text' IS NOT NULL
+            GROUP BY c.session_id, c.user_id
+            HAVING count(m.id) >= $1
+            AND (avg(f.rating) >= $2 OR avg(f.rating) IS NULL)
+        """, [min_turns, min_rating])
+        
+        conversations = []
+        
+        for row in result:
+            # Filter out personal information
+            turns = self.anonymize_turns(row['turns'])
+            
+            conversations.append({
+                'session_id': row['session_id'],
+                'turns': turns,
+                'avg_rating': row['avg_rating'],
+                'turn_count': row['turn_count'],
+            })
+        
+        return conversations
+    
+    def anonymize_turns(self, turns: List[Dict]) -> List[Dict]:
+        """Remove PII จาก conversation turns"""
+        import re
+        
+        anonymized = []
+        for turn in turns:
+            content = turn['content']
+            if content:
+                # Remove phone numbers
+                content = re.sub(r'\b0[0-9]{8,9}\b', '[PHONE]', content)
+                # Remove email
+                content = re.sub(r'\S+@\S+\.\S+', '[EMAIL]', content)
+                # Remove Thai ID card
+                content = re.sub(r'\b[0-9]{13}\b', '[ID_CARD]', content)
+                
+                anonymized.append({
+                    'role': turn['role'],
+                    'content': content,
+                })
+        
+        return anonymized
+    
+    def export_to_jsonl(self, conversations: List[Dict], output_path: str):
+        """Export conversations สำหรับ fine-tuning"""
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            for conv in conversations:
+                # Format for instruction tuning
+                training_example = {
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "คุณคือผู้ช่วย AI ของร้านค้า ตอบคำถามลูกค้าด้วยภาษาไทยที่สุภาพ"
+                        }
+                    ] + conv['turns']
+                }
+                f.write(json.dumps(training_example, ensure_ascii=False) + '\n')
+        
+        print(f"Exported {len(conversations)} conversations to {output_path}")
+```
+
+---
+
+## 14. Thai Language Specific Considerations
+
+### 14.1 Thai Text Processing
+
+```python
+# ml/thai_nlp/thai_processor.py
+"""
+Thai text preprocessing สำหรับ LINE Bot NLP
+"""
+
+import re
+from typing import List
+
+class ThaiTextProcessor:
+    """
+    Preprocess Thai text สำหรับ ML models
+    """
+    
+    def __init__(self):
+        # ลองใช้ pythainlp ถ้ามี
+        try:
+            from pythainlp.tokenize import word_tokenize
+            from pythainlp.corpus.common import thai_stopwords
+            self.tokenizer = word_tokenize
+            self.stop_words = set(thai_stopwords())
+            self.use_pythainlp = True
+        except ImportError:
+            print("pythainlp not available, using basic tokenization")
+            self.use_pythainlp = False
+    
+    def clean_text(self, text: str) -> str:
+        """Clean Thai text"""
+        # Remove HTML
+        text = re.sub(r'<[^>]+>', '', text)
+        # Remove URLs
+        text = re.sub(r'https?://\S+', '', text)
+        # Remove phone numbers
+        text = re.sub(r'\b0[0-9]{8,9}\b', '', text)
+        # Remove excessive whitespace
+        text = re.sub(r'\s+', ' ', text).strip()
+        # Remove emoji (optional)
+        # text = text.encode('ascii', 'ignore').decode('ascii')
+        return text
+    
+    def tokenize(self, text: str) -> List[str]:
+        """Tokenize Thai text"""
+        if self.use_pythainlp:
+            return self.tokenizer(text, engine='newmm')
+        else:
+            # Fallback: character-based
+            return list(text)
+    
+    def remove_stopwords(self, tokens: List[str]) -> List[str]:
+        """Remove Thai stopwords"""
+        if hasattr(self, 'stop_words'):
+            return [t for t in tokens if t not in self.stop_words and t.strip()]
+        return tokens
+    
+    def normalize_thai(self, text: str) -> str:
+        """Normalize Thai characters"""
+        # แก้ไข common typos ในภาษาไทย
+        corrections = {
+            'กรุณ': 'กรุณา',
+            'ขอบคุณมากๆ': 'ขอบคุณมาก',
+            'โอเค': 'โอเค',
+            'โอเคๆ': 'โอเค',
+        }
+        
+        for wrong, correct in corrections.items():
+            text = text.replace(wrong, correct)
+        
+        return text
+    
+    def detect_language(self, text: str) -> str:
+        """ตรวจสอบภาษาของข้อความ"""
+        thai_chars = sum(1 for c in text if '฀' <= c <= '๿')
+        english_chars = sum(1 for c in text if c.isalpha() and ord(c) < 128)
+        
+        if thai_chars > english_chars:
+            return 'th'
+        elif english_chars > 0:
+            return 'en'
+        return 'unknown'
+    
+    def preprocess_for_bert(self, text: str, max_length: int = 128) -> str:
+        """Preprocess สำหรับ BERT-based models"""
+        text = self.clean_text(text)
+        text = self.normalize_thai(text)
+        
+        # Truncate ถ้าข้อความยาวเกิน
+        if len(text) > max_length * 4:  # Rough char to token ratio for Thai
+            text = text[:max_length * 4]
+        
+        return text
+    
+    def extract_entities(self, text: str) -> dict:
+        """Extract entities จาก Thai text"""
+        entities = {
+            'phone_numbers': re.findall(r'\b0[0-9]{8,9}\b', text),
+            'prices': re.findall(r'฿[\d,]+|[\d,]+\s*บาท', text),
+            'order_ids': re.findall(r'(?:ออร์เดอร์|order|ORD)[-#]?\s*([A-Z0-9]+)', text, re.I),
+            'dates': re.findall(r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}', text),
+        }
+        return {k: v for k, v in entities.items() if v}
+```
+
+---
+
+## สรุปสมบูรณ์ Custom AI Models
+
+Custom AI Models เป็นการลงทุนที่คุ้มค่าสำหรับ LINE Bot:
+
+```
+AI Strategy Roadmap:
+
+Month 1-3: Foundation
+├── RAG System + GPT-4o-mini
+├── Basic intent classification
+└── Cost: ~$1,000/month
+
+Month 4-6: Optimization  
+├── Fine-tuned Thai intent model
+├── Spam detection
+└── Cost: ~$800/month (save 20%)
+
+Month 7-12: Custom Models
+├── Fine-tuned Typhoon for domain
+├── Local vLLM deployment
+└── Cost: ~$2,500/month (but unlimited scale)
+
+Year 2+: Full Custom
+├── Domain-specific LLM
+├── RLHF training loop
+└── Cost: ~$3,000/month (full privacy, max performance)
+```
+
+Key Takeaways:
+1. **เริ่มง่ายๆ**: RAG + API สำหรับ prototype
+2. **Scale smart**: Fine-tune เมื่อ volume สูงขึ้น
+3. **Thai language first**: เลือก model ที่รองรับภาษาไทยดี
+4. **Monitor ต่อเนื่อง**: Track model performance ใน production
+5. **Feedback loop**: เก็บ user feedback เพื่อปรับปรุง model
+
+---
+
+*จบ Part 85: Custom AI Models สำหรับ LINE Bots (ฉบับสมบูรณ์)*
