@@ -2291,3 +2291,595 @@ Enterprise LINE Bot Architecture ต้องการการวางแผ�
 ---
 
 *จบ Part 81: Enterprise LINE Bot Architecture*
+
+---
+
+## 14. API Gateway Configuration
+
+### 14.1 Kong Gateway Setup
+
+```yaml
+# infrastructure/kong/kong.yaml
+_format_version: "3.0"
+_transform: true
+
+services:
+  - name: message-service
+    url: http://message-service:3000
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 1000
+          hour: 50000
+          policy: redis
+          redis_host: redis
+      - name: jwt
+        config:
+          secret_is_base64: false
+      - name: prometheus
+    routes:
+      - name: webhook
+        paths:
+          - /webhook
+        methods:
+          - POST
+        strip_path: false
+
+  - name: user-service
+    url: http://user-service:3001
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 500
+    routes:
+      - name: users-api
+        paths:
+          - /api/users
+        methods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+
+  - name: campaign-service
+    url: http://campaign-service:3002
+    routes:
+      - name: campaigns-api
+        paths:
+          - /api/campaigns
+
+plugins:
+  - name: cors
+    config:
+      origins:
+        - "*"
+      methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - OPTIONS
+      headers:
+        - Accept
+        - Authorization
+        - Content-Type
+        - X-Line-Signature
+      exposed_headers:
+        - X-Auth-Token
+      credentials: true
+      max_age: 3600
+
+  - name: request-size-limiting
+    config:
+      allowed_payload_size: 1
+      size_unit: megabytes
+
+  - name: response-transformer
+    config:
+      add:
+        headers:
+          - "X-Content-Type-Options: nosniff"
+          - "X-Frame-Options: DENY"
+          - "Strict-Transport-Security: max-age=31536000; includeSubDomains"
+```
+
+### 14.2 Service Mesh with Istio
+
+```yaml
+# infrastructure/istio/virtual-service.yaml
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: message-service
+  namespace: linebot
+spec:
+  hosts:
+    - message-service
+  http:
+    - match:
+        - headers:
+            x-canary:
+              exact: "true"
+      route:
+        - destination:
+            host: message-service
+            subset: canary
+          weight: 100
+    - route:
+        - destination:
+            host: message-service
+            subset: stable
+          weight: 90
+        - destination:
+            host: message-service
+            subset: canary
+          weight: 10
+      retries:
+        attempts: 3
+        perTryTimeout: 2s
+        retryOn: 5xx,gateway-error,connect-failure
+      timeout: 10s
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: message-service
+  namespace: linebot
+spec:
+  host: message-service
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 100
+      http:
+        h2UpgradePolicy: UPGRADE
+        http2MaxRequests: 1000
+        maxRequestsPerConnection: 100
+    loadBalancer:
+      simple: LEAST_CONN
+    outlierDetection:
+      consecutiveGatewayErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+  subsets:
+    - name: stable
+      labels:
+        version: stable
+    - name: canary
+      labels:
+        version: canary
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: linebot
+spec:
+  mtls:
+    mode: STRICT  # Require mTLS for all service-to-service communication
+```
+
+---
+
+## 15. Database Schema Design
+
+### 15.1 Core Tables
+
+```sql
+-- database/migrations/001_create_core_tables.sql
+
+-- Users table
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    line_user_id VARCHAR(255) UNIQUE NOT NULL,
+    display_name VARCHAR(500),
+    picture_url TEXT,
+    status VARCHAR(50) DEFAULT 'active',
+    is_following BOOLEAN DEFAULT FALSE,
+    followed_at TIMESTAMPTZ,
+    unfollowed_at TIMESTAMPTZ,
+    tags TEXT[] DEFAULT '{}',
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_users_line_user_id ON users(line_user_id);
+CREATE INDEX idx_users_status ON users(status);
+CREATE INDEX idx_users_is_following ON users(is_following);
+CREATE INDEX idx_users_created_at ON users(created_at DESC);
+CREATE INDEX idx_users_tags ON users USING GIN(tags);
+
+-- Messages table
+CREATE TABLE messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    direction VARCHAR(10) NOT NULL, -- 'inbound' or 'outbound'
+    message_type VARCHAR(50) NOT NULL,
+    message_content JSONB NOT NULL,
+    reply_token VARCHAR(500),
+    line_message_id VARCHAR(255),
+    intent VARCHAR(100),
+    sentiment FLOAT,
+    processed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_messages_user_id ON messages(user_id);
+CREATE INDEX idx_messages_created_at ON messages(created_at DESC);
+CREATE INDEX idx_messages_intent ON messages(intent);
+
+-- Sessions table
+CREATE TABLE user_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    started_at TIMESTAMPTZ NOT NULL,
+    ended_at TIMESTAMPTZ,
+    message_count INT DEFAULT 0,
+    context JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_sessions_user_id ON user_sessions(user_id);
+CREATE INDEX idx_sessions_started_at ON user_sessions(started_at DESC);
+
+-- Events table
+CREATE TABLE events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    aggregate_id VARCHAR(255) NOT NULL,
+    aggregate_type VARCHAR(100) NOT NULL,
+    event_type VARCHAR(100) NOT NULL,
+    event_data JSONB NOT NULL,
+    metadata JSONB DEFAULT '{}',
+    version INTEGER NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(aggregate_id, version)
+);
+
+CREATE INDEX idx_events_aggregate_id ON events(aggregate_id);
+CREATE INDEX idx_events_event_type ON events(event_type);
+CREATE INDEX idx_events_created_at ON events(created_at DESC);
+
+-- Audit Log
+CREATE TABLE audit_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID,
+    line_user_id VARCHAR(255),
+    action VARCHAR(255) NOT NULL,
+    resource_type VARCHAR(100),
+    resource_id VARCHAR(255),
+    ip_address INET,
+    user_agent TEXT,
+    request_id VARCHAR(255),
+    status_code INT,
+    duration_ms INT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_audit_logs_user_id ON audit_logs(user_id);
+CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at DESC);
+CREATE INDEX idx_audit_logs_action ON audit_logs(action);
+
+-- Auto-update updated_at
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER update_users_updated_at
+    BEFORE UPDATE ON users
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+```
+
+---
+
+## 16. Compliance Architecture (PDPA/ISO 27001)
+
+```javascript
+// src/compliance/ComplianceManager.js
+
+class ComplianceManager {
+  constructor({ db, auditLogger, encryptionService }) {
+    this.db = db;
+    this.auditLogger = auditLogger;
+    this.encryption = encryptionService;
+    
+    // Personal data fields ที่ต้อง protect
+    this.personalDataFields = [
+      'displayName', 'pictureUrl', 'phoneNumber',
+      'email', 'address', 'lineUserId',
+    ];
+  }
+  
+  // Data Subject Access Request (DSAR)
+  async handleDataAccessRequest(lineUserId) {
+    const userData = await this.collectAllUserData(lineUserId);
+    
+    // Log the access request
+    await this.auditLogger.log({
+      action: 'DSAR_ACCESS',
+      lineUserId,
+      timestamp: new Date().toISOString(),
+    });
+    
+    return this.prepareDataExport(userData);
+  }
+  
+  async collectAllUserData(lineUserId) {
+    const [user, messages, purchases, sessions] = await Promise.all([
+      this.db.query('SELECT * FROM users WHERE line_user_id = $1', [lineUserId]),
+      this.db.query('SELECT * FROM messages WHERE user_id IN (SELECT id FROM users WHERE line_user_id = $1)', [lineUserId]),
+      this.db.query('SELECT * FROM purchases WHERE user_id IN (SELECT id FROM users WHERE line_user_id = $1)', [lineUserId]),
+      this.db.query('SELECT * FROM user_sessions WHERE user_id IN (SELECT id FROM users WHERE line_user_id = $1)', [lineUserId]),
+    ]);
+    
+    return {
+      profile: user.rows[0] || null,
+      messages: messages.rows,
+      purchases: purchases.rows,
+      sessions: sessions.rows,
+      exportedAt: new Date().toISOString(),
+    };
+  }
+  
+  prepareDataExport(data) {
+    // Mask sensitive data before export
+    if (data.profile) {
+      data.profile = this.maskSensitiveFields(data.profile);
+    }
+    return data;
+  }
+  
+  maskSensitiveFields(obj) {
+    const masked = { ...obj };
+    if (masked.picture_url) {
+      masked.picture_url = '[REDACTED - Profile Image URL]';
+    }
+    return masked;
+  }
+  
+  // Data Retention Policy
+  async enforceRetentionPolicy() {
+    const retentionPolicies = [
+      { table: 'messages', field: 'created_at', retainDays: 365 },
+      { table: 'audit_logs', field: 'created_at', retainDays: 730 },
+      { table: 'user_sessions', field: 'created_at', retainDays: 90 },
+    ];
+    
+    for (const policy of retentionPolicies) {
+      const result = await this.db.query(
+        `DELETE FROM ${policy.table} 
+         WHERE ${policy.field} < NOW() - INTERVAL '${policy.retainDays} days'
+         RETURNING id`
+      );
+      
+      console.log(`Deleted ${result.rowCount} records from ${policy.table}`);
+    }
+  }
+  
+  // Breach Notification (72-hour requirement)
+  async handleDataBreach(breachDetails) {
+    const breach = {
+      id: require('crypto').randomUUID(),
+      detectedAt: new Date().toISOString(),
+      affectedUsers: breachDetails.affectedUsers,
+      dataTypes: breachDetails.dataTypes,
+      severity: breachDetails.severity,
+      description: breachDetails.description,
+      status: 'detected',
+    };
+    
+    // Record breach
+    await this.db.query(
+      'INSERT INTO data_breaches (id, details, detected_at) VALUES ($1, $2, NOW())',
+      [breach.id, JSON.stringify(breach)]
+    );
+    
+    // Notify PDPA authority within 72 hours
+    await this.schedulePDPANotification(breach);
+    
+    // Notify affected users
+    if (breach.severity === 'high') {
+      await this.notifyAffectedUsers(breach);
+    }
+    
+    return breach;
+  }
+  
+  async schedulePDPANotification(breach) {
+    const deadline = new Date(breach.detectedAt);
+    deadline.setHours(deadline.getHours() + 72);
+    
+    await this.db.query(
+      `INSERT INTO scheduled_tasks 
+       (task_type, payload, scheduled_at, created_at)
+       VALUES ('pdpa_notification', $1, $2, NOW())`,
+      [JSON.stringify(breach), deadline.toISOString()]
+    );
+    
+    console.log(`PDPA notification scheduled for: ${deadline.toISOString()}`);
+  }
+}
+
+module.exports = ComplianceManager;
+```
+
+---
+
+## 17. Load Testing
+
+```javascript
+// tests/load/k6-test.js
+import http from 'k6/http';
+import { check, sleep } from 'k6';
+import { Rate } from 'k6/metrics';
+
+const errorRate = new Rate('errors');
+
+export const options = {
+  stages: [
+    { duration: '2m', target: 100 },   // Ramp up
+    { duration: '5m', target: 1000 },  // Stay at 1000 users
+    { duration: '2m', target: 2000 },  // Peak load
+    { duration: '5m', target: 2000 },  // Stay at peak
+    { duration: '2m', target: 0 },     // Ramp down
+  ],
+  thresholds: {
+    http_req_duration: ['p(99)<500'],   // 99th percentile < 500ms
+    http_req_failed: ['rate<0.01'],     // Error rate < 1%
+    errors: ['rate<0.01'],
+  },
+};
+
+const BASE_URL = __ENV.BASE_URL || 'http://localhost:3000';
+
+// Simulate LINE Webhook payload
+function createWebhookPayload(userId) {
+  return JSON.stringify({
+    destination: 'Utest123',
+    events: [{
+      type: 'message',
+      mode: 'active',
+      timestamp: Date.now(),
+      source: {
+        type: 'user',
+        userId: userId,
+      },
+      replyToken: `reply-${Math.random().toString(36).substr(2, 9)}`,
+      message: {
+        type: 'text',
+        id: `msg-${Date.now()}`,
+        text: 'สวัสดีครับ',
+      },
+    }],
+  });
+}
+
+function generateSignature(body, secret) {
+  // In real test, compute actual HMAC-SHA256
+  return 'test-signature';
+}
+
+export default function() {
+  const userId = `U${Math.random().toString(36).substr(2, 32)}`;
+  const payload = createWebhookPayload(userId);
+  
+  const params = {
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Line-Signature': generateSignature(payload, 'secret'),
+    },
+    timeout: '10s',
+  };
+  
+  const res = http.post(`${BASE_URL}/webhook`, payload, params);
+  
+  const success = check(res, {
+    'status is 200': (r) => r.status === 200,
+    'response time < 500ms': (r) => r.timings.duration < 500,
+    'has ok response': (r) => {
+      try {
+        const body = JSON.parse(r.body);
+        return body.status === 'ok';
+      } catch {
+        return false;
+      }
+    },
+  });
+  
+  errorRate.add(!success);
+  
+  sleep(Math.random() * 2 + 0.5); // Random sleep 0.5-2.5s
+}
+
+export function handleSummary(data) {
+  return {
+    'reports/load-test-summary.json': JSON.stringify(data, null, 2),
+    stdout: `
+=== Load Test Results ===
+Total Requests: ${data.metrics.http_reqs.values.count}
+Request Rate: ${data.metrics.http_reqs.values.rate.toFixed(2)} req/s
+P50 Duration: ${data.metrics.http_req_duration.values['p(50)'].toFixed(2)}ms
+P95 Duration: ${data.metrics.http_req_duration.values['p(95)'].toFixed(2)}ms
+P99 Duration: ${data.metrics.http_req_duration.values['p(99)'].toFixed(2)}ms
+Error Rate: ${(data.metrics.http_req_failed.values.rate * 100).toFixed(2)}%
+`,
+  };
+}
+```
+
+---
+
+## 18. Operational Runbooks
+
+### 18.1 Production Incident Response
+
+```markdown
+# Runbook: High Error Rate
+
+## Symptoms
+- Error rate > 1% for > 5 minutes
+- PagerDuty alert triggered
+- Grafana shows red status
+
+## Immediate Actions (< 5 minutes)
+
+1. Check service health:
+   kubectl get pods -n linebot
+   kubectl describe deployment message-service -n linebot
+
+2. Check logs:
+   kubectl logs -n linebot -l app=message-service --tail=100
+
+3. Check database connectivity:
+   kubectl exec -n linebot deploy/message-service -- node -e "
+   const { Pool } = require('pg');
+   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+   pool.query('SELECT 1').then(() => console.log('DB OK')).catch(console.error);
+   "
+
+4. Check Kafka consumer lag:
+   kubectl exec -n kafka kafka-0 -- kafka-consumer-groups.sh \
+     --bootstrap-server localhost:9092 \
+     --describe --group message-service-consumer
+
+## Escalation
+- 15 min: Notify Engineering Lead
+- 30 min: Notify CTO
+- 1 hour: Consider rollback
+
+## Rollback Procedure
+   kubectl rollout undo deployment/message-service -n linebot
+   kubectl rollout status deployment/message-service -n linebot
+```
+
+---
+
+## สรุปสมบูรณ์
+
+Enterprise LINE Bot Architecture ที่ครอบคลุมทุกด้านสำหรับองค์กรขนาดใหญ่:
+
+| Component | Technology | Purpose |
+|-----------|-----------|---------|
+| API Gateway | Kong | Rate limiting, Auth, Routing |
+| Service Mesh | Istio | mTLS, Traffic control |
+| App Layer | Fastify + Node.js | High-performance webhook |
+| Message Queue | Apache Kafka | Async event processing |
+| Primary DB | PostgreSQL + Aurora | ACID transactions |
+| Cache | Redis Cluster | Session, rate limiting |
+| Search | Elasticsearch | Full-text search |
+| Observability | Prometheus + Grafana | Metrics, Alerting |
+| Security | HashiCorp Vault | Secrets management |
+| Container | Kubernetes (EKS/GKE) | Orchestration |
+| Compliance | Custom + PDPA tools | Thai data protection |
+
+---
+
+*จบ Part 81: Enterprise LINE Bot Architecture (ฉบับสมบูรณ์)*

@@ -1404,6 +1404,431 @@ jobs:
 
 ---
 
+## 12. Appointment Booking Flow
+
+### 12.1 Appointment Intent Setup
+
+```javascript
+// scripts/setupAppointmentIntents.js
+// ตัวอย่าง Intents สำหรับระบบนัดหมาย
+
+const appointmentIntents = [
+  {
+    name: 'appointment.book',
+    trainingPhrases: [
+      'อยากนัดหมาย', 'จองคิว', 'ขอนัด', 'ต้องการนัดหมาย',
+      'book appointment', 'make appointment',
+    ],
+    parameters: [
+      { name: 'appointment-type', entityType: '@appointment-type', required: true },
+      { name: 'date', entityType: '@sys.date', required: true },
+      { name: 'time', entityType: '@sys.time', required: true },
+    ],
+    responses: ['ต้องการนัดบริการอะไรครับ?'],
+  },
+  {
+    name: 'appointment.cancel',
+    trainingPhrases: [
+      'ยกเลิกนัด', 'cancel appointment', 'ไม่มานัดวันนี้',
+      'เลื่อนนัดได้ไหม',
+    ],
+    parameters: [
+      { name: 'appointment-id', entityType: '@sys.any', required: false },
+    ],
+    responses: ['ต้องการยกเลิกนัดไหมครับ?'],
+  },
+];
+```
+
+### 12.2 Appointment Handler
+
+```javascript
+// src/fulfillment/handlers/appointmentHandler.js
+const { Suggestion } = require('dialogflow-fulfillment');
+
+class AppointmentHandler {
+  async bookAppointment(agent) {
+    const {
+      'appointment-type': appointmentType,
+      date: appointmentDate,
+      time: appointmentTime,
+    } = agent.parameters;
+
+    // ตรวจสอบพารามิเตอร์
+    if (!appointmentType) {
+      agent.add('ต้องการนัดบริการอะไรครับ?');
+      agent.add(new Suggestion('ตรวจสุขภาพ'));
+      agent.add(new Suggestion('พบแพทย์'));
+      agent.add(new Suggestion('ทำฟัน'));
+      return;
+    }
+
+    if (!appointmentDate) {
+      agent.add(`ต้องการนัด${appointmentType} วันไหนครับ?`);
+      agent.add(new Suggestion('พรุ่งนี้'));
+      agent.add(new Suggestion('วันศุกร์'));
+      agent.add(new Suggestion('สัปดาห์หน้า'));
+      return;
+    }
+
+    if (!appointmentTime) {
+      agent.add(`วันที่ ${this.formatDate(appointmentDate)} ต้องการเวลากี่โมงครับ?`);
+      agent.add(new Suggestion('09:00'));
+      agent.add(new Suggestion('10:00'));
+      agent.add(new Suggestion('14:00'));
+      agent.add(new Suggestion('15:00'));
+      return;
+    }
+
+    // ตรวจสอบว่ามีคิวว่างหรือไม่
+    const isAvailable = await this.checkAvailability(
+      appointmentType,
+      appointmentDate,
+      appointmentTime
+    );
+
+    if (!isAvailable) {
+      agent.add(`ขออภัยครับ ช่วงเวลา ${this.formatTime(appointmentTime)} วันที่ ${this.formatDate(appointmentDate)} ไม่ว่างครับ`);
+      agent.add(new Suggestion('เลือกเวลาอื่น'));
+      agent.add(new Suggestion('เลือกวันอื่น'));
+
+      // Set context สำหรับ rescheduling
+      agent.setContext({
+        name: 'appointment-reschedule',
+        lifespan: 3,
+        parameters: {
+          'appointment-type': appointmentType,
+          'preferred-date': appointmentDate,
+        },
+      });
+      return;
+    }
+
+    // สร้างนัดหมาย
+    const appointmentId = await this.createAppointment({
+      type: appointmentType,
+      date: appointmentDate,
+      time: appointmentTime,
+      userId: agent.session.split('/').pop(),
+    });
+
+    agent.add(`✅ นัดหมายสำเร็จครับ!\n\n` +
+      `📋 รายละเอียด:\n` +
+      `• บริการ: ${appointmentType}\n` +
+      `• วันที่: ${this.formatDate(appointmentDate)}\n` +
+      `• เวลา: ${this.formatTime(appointmentTime)}\n` +
+      `• หมายเลขนัด: ${appointmentId}\n\n` +
+      `⚠️ กรุณามาถึงก่อน 10 นาที\nหากต้องการยกเลิกหรือเลื่อนนัด กรุณาแจ้งล่วงหน้า 24 ชั่วโมง`
+    );
+
+    // ล้าง Context
+    agent.clearContext('appointment-reschedule');
+  }
+
+  async cancelAppointment(agent) {
+    const context = agent.getContext('appointment-booking');
+    const { 'appointment-id': appointmentId } = agent.parameters;
+
+    if (!appointmentId && !context) {
+      agent.add('กรุณาระบุหมายเลขนัดหมายที่ต้องการยกเลิก');
+      return;
+    }
+
+    const id = appointmentId || context?.parameters?.appointmentId;
+
+    try {
+      await this.cancelAppointmentById(id);
+      agent.add(`✅ ยกเลิกนัดหมาย ${id} แล้วครับ\n\nหากต้องการนัดใหม่ สามารถแจ้งได้เลยครับ`);
+      agent.add(new Suggestion('นัดหมายใหม่'));
+    } catch (error) {
+      agent.add(`ขออภัยครับ ไม่พบนัดหมาย ${id} กรุณาตรวจสอบหมายเลขใหม่`);
+    }
+  }
+
+  async checkAppointment(agent) {
+    const userId = agent.session.split('/').pop();
+
+    const appointments = await this.getUserAppointments(userId);
+
+    if (appointments.length === 0) {
+      agent.add('ไม่พบนัดหมายที่ใช้งานอยู่ครับ');
+      agent.add(new Suggestion('นัดหมายใหม่'));
+      return;
+    }
+
+    const upcomingList = appointments
+      .filter((a) => new Date(a.date) >= new Date())
+      .sort((a, b) => new Date(a.date) - new Date(b.date))
+      .slice(0, 3);
+
+    const appointmentText = upcomingList
+      .map((a) => `📅 ${a.type}\n   ${this.formatDate(a.date)} ${a.time}\n   ID: ${a.id}`)
+      .join('\n\n');
+
+    agent.add(`นัดหมายของคุณ:\n\n${appointmentText}`);
+    agent.add(new Suggestion('ยกเลิกนัด'));
+    agent.add(new Suggestion('เลื่อนนัด'));
+  }
+
+  // Helpers
+  formatDate(date) {
+    if (!date) return '';
+    const d = new Date(date);
+    return d.toLocaleDateString('th-TH', {
+      year: 'numeric', month: 'long', day: 'numeric', weekday: 'long'
+    });
+  }
+
+  formatTime(time) {
+    if (!time) return '';
+    if (typeof time === 'string') return time;
+    const t = new Date(time);
+    return t.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  async checkAvailability(type, date, time) {
+    // ในระบบจริงตรวจสอบจาก Database
+    return Math.random() > 0.2; // Mock: 80% ว่าง
+  }
+
+  async createAppointment(data) {
+    // ในระบบจริงบันทึกลง Database
+    return `APT-${Date.now()}`;
+  }
+
+  async cancelAppointmentById(id) {
+    // ในระบบจริงยกเลิกใน Database
+    return true;
+  }
+
+  async getUserAppointments(userId) {
+    // ในระบบจริงดึงจาก Database
+    return [];
+  }
+}
+
+module.exports = new AppointmentHandler();
+```
+
+---
+
+## 13. Error Handling และ Resilience
+
+```javascript
+// src/middleware/dialogflowErrorHandler.js
+
+class DialogflowErrorHandler {
+  static async withRetry(fn, maxRetries = 3, delay = 1000) {
+    let lastError;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        lastError = error;
+
+        // ไม่ Retry สำหรับ Client errors
+        if (error.code >= 400 && error.code < 500) {
+          throw error;
+        }
+
+        if (attempt < maxRetries) {
+          const waitTime = delay * Math.pow(2, attempt - 1); // Exponential backoff
+          await new Promise((resolve) => setTimeout(resolve, waitTime));
+        }
+      }
+    }
+
+    throw lastError;
+  }
+
+  static handleDialogflowError(error) {
+    const errorMessages = {
+      3: 'ข้อมูลไม่ถูกต้อง กรุณาลองใหม่',
+      5: 'ไม่พบข้อมูล กรุณาลองใหม่',
+      8: 'มีการเรียกใช้มากเกินไป กรุณารอสักครู่',
+      14: 'บริการไม่พร้อม กรุณาลองใหม่ภายหลัง',
+    };
+
+    return errorMessages[error.code] || 'เกิดข้อผิดพลาด กรุณาลองใหม่';
+  }
+}
+
+module.exports = DialogflowErrorHandler;
+```
+
+---
+
+## 14. Analytics Dashboard
+
+```javascript
+// src/services/dialogflowAnalytics.js
+const mongoose = require('mongoose');
+
+const conversationSchema = new mongoose.Schema({
+  sessionId: String,
+  lineUserId: String,
+  intent: String,
+  confidence: Number,
+  parameters: Object,
+  fulfillmentText: String,
+  language: String,
+  processingTimeMs: Number,
+  timestamp: { type: Date, default: Date.now },
+});
+
+const ConversationLog = mongoose.model('ConversationLog', conversationSchema);
+
+class DialogflowAnalytics {
+  async logConversation(data) {
+    await ConversationLog.create(data);
+  }
+
+  async getTopIntents(days = 30) {
+    const cutoff = new Date(Date.now() - days * 24 * 3600 * 1000);
+
+    return ConversationLog.aggregate([
+      { $match: { timestamp: { $gte: cutoff } } },
+      { $group: { _id: '$intent', count: { $sum: 1 }, avgConfidence: { $avg: '$confidence' } } },
+      { $sort: { count: -1 } },
+      { $limit: 10 },
+    ]);
+  }
+
+  async getLowConfidenceIntents(threshold = 0.7, days = 7) {
+    const cutoff = new Date(Date.now() - days * 24 * 3600 * 1000);
+
+    return ConversationLog.find({
+      timestamp: { $gte: cutoff },
+      confidence: { $lt: threshold },
+    }).sort({ timestamp: -1 }).limit(50);
+  }
+
+  async getDailyStats(days = 30) {
+    const cutoff = new Date(Date.now() - days * 24 * 3600 * 1000);
+
+    return ConversationLog.aggregate([
+      { $match: { timestamp: { $gte: cutoff } } },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$timestamp' } },
+          count: { $sum: 1 },
+          avgConfidence: { $avg: '$confidence' },
+          uniqueUsers: { $addToSet: '$lineUserId' },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]);
+  }
+
+  async getFallbackRate(days = 7) {
+    const cutoff = new Date(Date.now() - days * 24 * 3600 * 1000);
+
+    const total = await ConversationLog.countDocuments({ timestamp: { $gte: cutoff } });
+    const fallbacks = await ConversationLog.countDocuments({
+      timestamp: { $gte: cutoff },
+      intent: 'Default Fallback Intent',
+    });
+
+    return {
+      total,
+      fallbacks,
+      fallbackRate: total ? ((fallbacks / total) * 100).toFixed(2) : 0,
+    };
+  }
+
+  async getUserEngagement(days = 30) {
+    const cutoff = new Date(Date.now() - days * 24 * 3600 * 1000);
+
+    return ConversationLog.aggregate([
+      { $match: { timestamp: { $gte: cutoff } } },
+      {
+        $group: {
+          _id: '$lineUserId',
+          messageCount: { $sum: 1 },
+          firstMessage: { $min: '$timestamp' },
+          lastMessage: { $max: '$timestamp' },
+          intents: { $addToSet: '$intent' },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalUsers: { $sum: 1 },
+          avgMessagesPerUser: { $avg: '$messageCount' },
+          activeUsers: { $sum: { $cond: [{ $gt: ['$messageCount', 1] }, 1, 0] } },
+        },
+      },
+    ]);
+  }
+}
+
+module.exports = new DialogflowAnalytics();
+```
+
+---
+
+## 15. Webhook Security
+
+```javascript
+// src/middleware/webhookSecurity.js
+const crypto = require('crypto');
+
+class WebhookSecurityMiddleware {
+  // ตรวจสอบ Dialogflow Webhook Signature
+  static verifyDialogflowRequest(req, res, next) {
+    // Dialogflow ไม่มี signature verification แบบ built-in
+    // ควรใช้ HTTPS และ Secret Token แทน
+    const authHeader = req.headers.authorization;
+    const expectedToken = process.env.DIALOGFLOW_WEBHOOK_TOKEN;
+
+    if (expectedToken && authHeader !== `Bearer ${expectedToken}`) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    next();
+  }
+
+  // Rate Limiting สำหรับ Webhook
+  static rateLimitWebhook(options = {}) {
+    const { maxRequests = 100, windowMs = 60000 } = options;
+    const requests = new Map();
+
+    return (req, res, next) => {
+      const ip = req.ip;
+      const now = Date.now();
+      const windowStart = now - windowMs;
+
+      const ipRequests = requests.get(ip) || [];
+      const validRequests = ipRequests.filter((time) => time > windowStart);
+
+      if (validRequests.length >= maxRequests) {
+        return res.status(429).json({ error: 'Too Many Requests' });
+      }
+
+      validRequests.push(now);
+      requests.set(ip, validRequests);
+      next();
+    };
+  }
+
+  // Validate Dialogflow Request Body
+  static validateRequestBody(req, res, next) {
+    const { queryResult, session } = req.body;
+
+    if (!queryResult || !session) {
+      return res.status(400).json({ error: 'Invalid request body' });
+    }
+
+    next();
+  }
+}
+
+module.exports = WebhookSecurityMiddleware;
+```
+
+---
+
 ## สรุปบทที่ 63
 
 ในบทนี้เราได้เรียนรู้:
@@ -1415,7 +1840,18 @@ jobs:
 5. **Multi-turn Conversations** - การสนทนาหลายรอบพร้อม Context
 6. **Fallback Handling** - การใช้ OpenAI เป็น Fallback
 7. **LINE Integration** - การแปลง Dialogflow response เป็น LINE messages
-8. **Testing** - การทดสอบ Conversation Flows
+8. **Appointment Flow** - ระบบนัดหมายแบบ Multi-turn
+9. **Error Handling** - Retry และ Resilience Patterns
+10. **Analytics** - ติดตามประสิทธิภาพ Intent และ Fallback Rate
+11. **Testing** - การทดสอบ Conversation Flows
+
+### Tips สำหรับ Production
+
+- ใช้ **Dialogflow CX** สำหรับ Flows ที่ซับซ้อน
+- เพิ่ม **Training Phrases** จากข้อมูลจริงอย่างสม่ำเสมอ
+- Monitor **Fallback Rate** ควรต่ำกว่า 10%
+- ตั้ง **Context Lifespan** ให้เหมาะสม (ไม่สั้นหรือยาวเกินไป)
+- ใช้ **Webhook** สำหรับ Dynamic Responses เสมอ
 
 ---
 
