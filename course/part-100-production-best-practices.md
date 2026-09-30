@@ -1751,3 +1751,1568 @@ Launch Time: ________________
 ---
 
 *ขอบคุณที่เรียนหลักสูตร LINE OA Development ครบ 100 บท ไม่ว่าคุณจะนำความรู้นี้ไปใช้ในอาชีพ สร้างธุรกิจ หรือช่วยเหลือผู้อื่น ขอให้ประสบความสำเร็จในทุกเส้นทาง 🙏*
+
+---
+
+## ภาคผนวก A: Advanced Production Patterns
+
+### A.1 Zero-Downtime Deployment
+
+```bash
+#!/bin/bash
+# zero-downtime-deploy.sh
+# Blue-Green Deployment สำหรับ LINE Bot Production
+
+set -e
+
+NEW_VERSION="$1"
+NAMESPACE="line-bot-production"
+APP_NAME="line-bot-webhook"
+REGISTRY="registry.example.com"
+
+if [ -z "$NEW_VERSION" ]; then
+  echo "Usage: $0 <version>"
+  exit 1
+fi
+
+echo "=== Zero-Downtime Deployment: $NEW_VERSION ==="
+
+# ตรวจสอบ active slot
+CURRENT_ACTIVE=$(kubectl get service "$APP_NAME" \
+  -n "$NAMESPACE" \
+  -o jsonpath='{.spec.selector.slot}' 2>/dev/null || echo "blue")
+
+DEPLOY_SLOT="green"
+ROLLBACK_SLOT="blue"
+if [ "$CURRENT_ACTIVE" == "green" ]; then
+  DEPLOY_SLOT="blue"
+  ROLLBACK_SLOT="green"
+fi
+
+echo "Active: $CURRENT_ACTIVE → Deploying to: $DEPLOY_SLOT"
+
+# Deploy ไปยัง inactive slot
+kubectl set image "deployment/$APP_NAME-$DEPLOY_SLOT" \
+  "$APP_NAME=$REGISTRY/$APP_NAME:$NEW_VERSION" \
+  -n "$NAMESPACE"
+
+kubectl rollout status "deployment/$APP_NAME-$DEPLOY_SLOT" \
+  -n "$NAMESPACE" --timeout=5m
+
+# Health check
+for i in {1..5}; do
+  RESPONSE=$(curl -sf "http://$APP_NAME-$DEPLOY_SLOT.$NAMESPACE.svc.cluster.local/health" \
+    -o /dev/null -w "%{http_code}")
+  [ "$RESPONSE" == "200" ] && echo "✅ Health check $i/5" || { echo "❌ ABORT"; exit 1; }
+  sleep 3
+done
+
+# Traffic switch
+kubectl patch service "$APP_NAME" -n "$NAMESPACE" \
+  --type merge -p "{\"spec\":{\"selector\":{\"slot\":\"$DEPLOY_SLOT\"}}}"
+
+echo "✅ Traffic switched. Monitoring errors..."
+sleep 30
+
+# Monitor errors post-switch
+ERROR_COUNT=$(kubectl logs -n "$NAMESPACE" -l "slot=$DEPLOY_SLOT" \
+  --since=30s 2>/dev/null | grep -c "ERROR" || true)
+
+if [ "$ERROR_COUNT" -gt 20 ]; then
+  echo "❌ High error count ($ERROR_COUNT). Rolling back..."
+  kubectl patch service "$APP_NAME" -n "$NAMESPACE" \
+    --type merge -p "{\"spec\":{\"selector\":{\"slot\":\"$ROLLBACK_SLOT\"}}}"
+  exit 1
+fi
+
+echo "🎉 Deployment complete! Active: $DEPLOY_SLOT, Version: $NEW_VERSION"
+```
+
+### A.2 Feature Flag System
+
+```typescript
+// Feature Flags สำหรับ Safe Deployment
+
+import Redis from 'ioredis';
+
+interface FeatureFlag {
+  name: string;
+  enabled: boolean;
+  rolloutPercentage: number;
+  allowlist?: string[];
+  blocklist?: string[];
+}
+
+export class FeatureFlagService {
+  private cache = new Map<string, { value: FeatureFlag; expiry: number }>();
+  
+  constructor(private redis: Redis) {}
+  
+  async isEnabled(flagName: string, userId?: string): Promise<boolean> {
+    const flag = await this.getFlag(flagName);
+    if (!flag || !flag.enabled) return false;
+    
+    if (userId && flag.allowlist?.includes(userId)) return true;
+    if (userId && flag.blocklist?.includes(userId)) return false;
+    
+    if (flag.rolloutPercentage >= 100) return true;
+    if (flag.rolloutPercentage <= 0) return false;
+    
+    if (userId) {
+      const hash = this.hashString(`${userId}:${flagName}`);
+      return (hash % 100) < flag.rolloutPercentage;
+    }
+    
+    return Math.random() * 100 < flag.rolloutPercentage;
+  }
+  
+  private async getFlag(name: string): Promise<FeatureFlag | null> {
+    const cached = this.cache.get(name);
+    if (cached && cached.expiry > Date.now()) return cached.value;
+    
+    const data = await this.redis.get(`feature:${name}`);
+    if (!data) return null;
+    
+    const flag = JSON.parse(data) as FeatureFlag;
+    this.cache.set(name, { value: flag, expiry: Date.now() + 60000 });
+    return flag;
+  }
+  
+  async setFlag(flag: FeatureFlag): Promise<void> {
+    await this.redis.setex(`feature:${flag.name}`, 2592000, JSON.stringify(flag));
+    this.cache.delete(flag.name);
+  }
+  
+  private hashString(str: string): number {
+    let hash = 5381;
+    for (let i = 0; i < str.length; i++) {
+      hash = ((hash << 5) + hash) + str.charCodeAt(i);
+      hash = hash & hash;
+    }
+    return Math.abs(hash);
+  }
+}
+
+// ใช้งานใน Webhook Handler
+async function handleTextMessage(event: MessageEvent): Promise<void> {
+  const userId = event.source.userId!;
+  const useAIChatbot = await featureFlags.isEnabled('ai-chatbot-v2', userId);
+  
+  if (useAIChatbot) {
+    await handleWithAI(event);
+  } else {
+    await handleWithRuleBased(event);
+  }
+}
+```
+
+### A.3 A/B Testing Framework
+
+```typescript
+// A/B Testing สำหรับ LINE Bot
+// ทดสอบ message formats, CTAs, flows
+
+interface Experiment {
+  id: string;
+  name: string;
+  variants: Array<{
+    id: string;
+    name: string;
+    weight: number;
+    isControl: boolean;
+  }>;
+  status: 'running' | 'paused' | 'completed';
+}
+
+export class ABTestingService {
+  constructor(private redis: Redis, private analytics: AnalyticsService) {}
+  
+  async getVariant(experimentId: string, userId: string): Promise<string> {
+    // Check existing assignment (deterministic)
+    const key = `ab:${experimentId}:${userId}`;
+    const existing = await this.redis.get(key);
+    if (existing) return existing;
+    
+    const experiment = await this.getExperiment(experimentId);
+    if (!experiment || experiment.status !== 'running') return 'control';
+    
+    // Assign variant based on consistent hash
+    const hash = this.hash(`${userId}:${experimentId}`);
+    let cumulative = 0;
+    let assignedVariant = experiment.variants[0].id;
+    
+    for (const variant of experiment.variants) {
+      cumulative += variant.weight;
+      if (hash % 100 < cumulative) {
+        assignedVariant = variant.id;
+        break;
+      }
+    }
+    
+    await this.redis.setex(key, 86400 * 30, assignedVariant);
+    await this.analytics.track('ab_assignment', { userId, experimentId, variant: assignedVariant });
+    
+    return assignedVariant;
+  }
+  
+  async trackConversion(
+    experimentId: string,
+    userId: string,
+    metric: string
+  ): Promise<void> {
+    const variant = await this.redis.get(`ab:${experimentId}:${userId}`);
+    if (!variant) return;
+    
+    await this.analytics.track('ab_conversion', {
+      userId, experimentId, variant, metric,
+      timestamp: new Date().toISOString()
+    });
+  }
+  
+  private hash(str: string): number {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) {
+      h = Math.imul(31, h) + str.charCodeAt(i) | 0;
+    }
+    return Math.abs(h);
+  }
+  
+  private async getExperiment(id: string): Promise<Experiment | null> {
+    const data = await this.redis.get(`experiment:${id}`);
+    return data ? JSON.parse(data) : null;
+  }
+}
+
+// ตัวอย่าง: ทดสอบ Welcome Message
+const welcomeExperiment: Experiment = {
+  id: 'welcome-msg-2024-q1',
+  name: 'Welcome Message Format Test',
+  status: 'running',
+  variants: [
+    { id: 'control', name: 'Text Only', weight: 50, isControl: true },
+    { id: 'flex', name: 'Flex Message with Image', weight: 50, isControl: false }
+  ]
+};
+```
+
+---
+
+## ภาคผนวก B: PDPA Compliance
+
+### B.1 Personal Data Protection Implementation
+
+```typescript
+// PDPA (พ.ร.บ. คุ้มครองข้อมูลส่วนบุคคล) สำหรับ LINE Bot
+
+interface ConsentRecord {
+  userId: string;
+  type: 'marketing' | 'analytics' | 'personalization';
+  granted: boolean;
+  timestamp: Date;
+  policyVersion: string;
+  ipAddress?: string;
+}
+
+export class PDPAService {
+  constructor(private db: Pool) {}
+  
+  // บันทึกความยินยอม
+  async recordConsent(records: ConsentRecord[]): Promise<void> {
+    const client = await this.db.connect();
+    try {
+      await client.query('BEGIN');
+      
+      for (const record of records) {
+        await client.query(
+          `INSERT INTO consent_records 
+           (user_id, consent_type, granted, granted_at, policy_version, ip_address)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (user_id, consent_type)
+           DO UPDATE SET
+             granted = EXCLUDED.granted,
+             granted_at = NOW(),
+             policy_version = EXCLUDED.policy_version`,
+          [record.userId, record.type, record.granted,
+           record.timestamp, record.policyVersion, record.ipAddress]
+        );
+      }
+      
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+  
+  // ตรวจสอบความยินยอม
+  async hasConsent(userId: string, type: ConsentRecord['type']): Promise<boolean> {
+    const result = await this.db.query(
+      `SELECT granted FROM consent_records
+       WHERE user_id = $1 AND consent_type = $2
+       ORDER BY granted_at DESC LIMIT 1`,
+      [userId, type]
+    );
+    return result.rows.length > 0 && result.rows[0].granted;
+  }
+  
+  // ส่งออกข้อมูลผู้ใช้ (Right of Access - มาตรา 30)
+  async exportUserData(lineUserId: string): Promise<Record<string, unknown>> {
+    const [profile, orders, consents] = await Promise.all([
+      this.db.query(
+        'SELECT id, display_name, email, phone, created_at FROM line_users WHERE line_user_id = $1',
+        [lineUserId]
+      ),
+      this.db.query(
+        `SELECT o.order_number, o.total_amount, o.status, o.created_at
+         FROM orders o JOIN line_users u ON u.id = o.user_id
+         WHERE u.line_user_id = $1`,
+        [lineUserId]
+      ),
+      this.db.query(
+        'SELECT consent_type, granted, granted_at FROM consent_records WHERE user_id = $1',
+        [lineUserId]
+      )
+    ]);
+    
+    return {
+      exportedAt: new Date().toISOString(),
+      requestedBy: lineUserId,
+      profile: profile.rows[0] || null,
+      orderHistory: orders.rows,
+      consentHistory: consents.rows,
+      retentionPolicy: 'Data retained for 3 years from last activity'
+    };
+  }
+  
+  // ลบ/Anonymize ข้อมูล (Right to Erasure - มาตรา 33)
+  async deleteUserData(lineUserId: string): Promise<void> {
+    const client = await this.db.connect();
+    try {
+      await client.query('BEGIN');
+      
+      // Anonymize แทนการลบเพื่อรักษา business records
+      await client.query(
+        `UPDATE line_users SET
+           display_name = 'Deleted User',
+           picture_url = NULL,
+           phone = NULL,
+           email = NULL,
+           line_user_id = 'deleted_' || id
+         WHERE line_user_id = $1`,
+        [lineUserId]
+      );
+      
+      await client.query(
+        'DELETE FROM consent_records WHERE user_id = $1',
+        [lineUserId]
+      );
+      
+      // บันทึก audit log
+      await client.query(
+        `INSERT INTO data_deletion_audit (original_line_user_id, deleted_at, reason)
+         VALUES ($1, NOW(), 'User requested deletion per PDPA')`,
+        [lineUserId]
+      );
+      
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+}
+```
+
+---
+
+## ภาคผนวก C: Career Paths (เส้นทางอาชีพ)
+
+### C.1 LINE Bot Developer Career Ladder
+
+```
+Career Path: LINE Bot Development
+══════════════════════════════════
+
+Junior LINE Bot Developer (0-2 ปี)
+├── เงินเดือน: 25,000 - 45,000 THB/เดือน
+├── ทำ well-defined tasks
+├── ต้องการ guidance
+└── Focus: เรียนรู้ LINE API + codebase
+
+LINE Bot Developer (2-4 ปี)
+├── เงินเดือน: 45,000 - 80,000 THB/เดือน
+├── ทำงานอิสระได้
+├── Mentor juniors
+└── Focus: Deliver quality features
+
+Senior LINE Bot Developer (4-7 ปี)
+├── เงินเดือน: 80,000 - 150,000 THB/เดือน
+├── Lead feature development
+├── Drive technical decisions
+└── Focus: Team productivity
+
+Tech Lead / Staff Engineer (7+ ปี)
+├── เงินเดือน: 150,000 - 250,000+ THB/เดือน
+├── Cross-team impact
+├── Technical strategy
+└── Focus: Org-wide impact
+
+Freelance / Consultant
+├── เงินเดือน: 150,000 - 500,000+ THB/เดือน
+├── หลาย clients พร้อมกัน
+└── Focus: Business value delivery
+```
+
+### C.2 Portfolio Projects ที่ควรมี
+
+```markdown
+## Portfolio สำหรับ LINE Bot Developer
+
+### Project 1: Customer Service Bot (Basic)
+- Multi-step conversation flow
+- FAQ automation
+- Escalation to human agent
+- Rich Menu navigation
+**Tech:** Node.js, LINE Messaging API, Redis
+
+### Project 2: E-Commerce Bot (Intermediate)
+- Product catalog (Flex Message Carousel)
+- Shopping cart
+- Payment (PromptPay)
+- Order tracking
+**Tech:** TypeScript, PostgreSQL, React LIFF
+
+### Project 3: Enterprise System (Advanced)
+- Multi-store support
+- Real-time notifications
+- Analytics dashboard
+- Kubernetes deployment
+**Tech:** Microservices, Kubernetes, Grafana
+
+## GitHub Portfolio Best Practices
+1. README ที่ดี: demo GIF, architecture diagram, setup guide
+2. Live demo link
+3. Test coverage badge (Codecov)
+4. CI/CD status badge
+5. Clear commit history
+
+## สิ่งที่ Recruiter มองหา
+- ✅ Working demo บน LINE
+- ✅ Clean, readable code
+- ✅ Tests (unit + integration)
+- ✅ Documentation
+- ✅ Production deployment experience
+```
+
+### C.3 Certification Roadmap
+
+```markdown
+## Certification Paths ปี 2024-2025
+
+### Q1 (Year 1): Foundation
+- LINE Certified Business Manager
+  ลงทะเบียน: businessmanager.line.biz
+  
+- AWS Cloud Practitioner (ฟรี prep materials)
+  เวลาเรียน: 40-60 ชั่วโมง
+  Cost: $100
+
+### Q2 (Year 1): Development
+- Node.js Application Developer (OpenJS)
+  เวลาเรียน: 60-80 ชั่วโมง
+  Cost: $300
+  
+- MongoDB Developer Associate (ฟรี!)
+  university.mongodb.com
+
+### Q3-Q4 (Year 1): Infrastructure
+- Kubernetes (CKA)
+  เวลาเรียน: 3-4 เดือน
+  Cost: $395
+  
+- AWS Solutions Architect Associate
+  เวลาเรียน: 3-6 เดือน
+  Cost: $300
+
+### Year 2: Specialization
+- Google Cloud Professional Data Engineer
+- AWS DevOps Engineer Professional
+- Security certifications (CEH, OSCP)
+```
+
+---
+
+## ภาคผนวก D: Community & Resources
+
+### D.1 Thai Developer Communities
+
+```markdown
+## LINE Developer Communities
+
+### Official
+- LINE Developer Community TH:
+  community.line.me/th
+  
+- LINE Developers Blog (EN):
+  developers.line.biz/en/blog/
+  
+- LINE API Status:
+  linestatus.page.link/api-status
+
+### Facebook Groups
+- LINE BOT Thailand: ~15,000+ members
+  facebook.com/groups/linebotthailand
+  
+- LINE OA Thailand: ~25,000+ members
+  facebook.com/groups/lineofficialthai
+
+### Developer Events
+- LINE Developer Meetup (รายไตรมาส)
+  meetup.com/line-developers-bangkok
+  
+- BKK.JS (JavaScript community)
+  bkkjs.github.io
+  
+- Thailand Tech Events
+  eventpop.me (ค้นหา "developer")
+
+### Online Learning
+- LINE Developers YouTube Channel
+- Udemy: "LINE Bot" courses (ตรวจสอบ rating)
+- GitHub: github.com/line (official repos + examples)
+
+## Stack Overflow Tags
+- [line-messaging-api] - 2,000+ questions
+- [liff] - 500+ questions
+- [line-bot-sdk] - 1,500+ questions
+```
+
+### D.2 Open Source Contributions
+
+```markdown
+## เริ่มต้น Contribute ให้ LINE SDK
+
+### Step-by-Step Guide
+
+1. **เลือก Issue**
+   github.com/line/line-bot-sdk-nodejs/issues
+   Filter: label:"good first issue"
+
+2. **Fork & Clone**
+   ```bash
+   git fork https://github.com/line/line-bot-sdk-nodejs
+   git clone https://github.com/YOUR_NAME/line-bot-sdk-nodejs
+   cd line-bot-sdk-nodejs
+   npm install
+   ```
+
+3. **สร้าง Branch**
+   ```bash
+   git checkout -b fix/issue-123-description
+   ```
+
+4. **เขียน Fix + Test**
+   - Fix the bug
+   - Add/update unit test
+   - Run: npm test
+   - Ensure coverage doesn't drop
+
+5. **Submit PR**
+   - Clear description
+   - Reference issue: "Fixes #123"
+   - Follow contribution guidelines
+
+### ประโยชน์
+- GitHub profile แสดง green squares
+- Build reputation ใน community
+- เรียนรู้ production-grade code
+- อาจได้ job offer!
+
+### Other Projects to Contribute
+- awesome-line-bot (curated resources)
+- line-flex-message-designer
+- Community chatbot templates
+```
+
+---
+
+## ภาคผนวก E: สรุปทักษะทั้ง 100 บท
+
+```markdown
+# Skills Matrix - LINE OA Development (100 Parts)
+
+## Tier 1: Core LINE Skills
+| ทักษะ | บท | ระดับหลังจบ |
+|------|---|------------|
+| LINE Messaging API | 1-10 | Expert |
+| Flex Message | 8-9, 86 | Expert |
+| LIFF v2 | 18-19, 86 | Advanced |
+| Rich Menu | 10, 33 | Advanced |
+| LINE Login | 34 | Intermediate |
+| LINE Pay | 29 | Intermediate |
+| LINE Notify | 39 | Basic |
+| LINE Mini App | 87 | Basic |
+
+## Tier 2: Backend Skills
+| ทักษะ | บท | ระดับหลังจบ |
+|------|---|------------|
+| Node.js/TypeScript | ตลอด | Advanced |
+| PostgreSQL | 26, 60 | Advanced |
+| Redis | 21, 53 | Advanced |
+| REST API Design | 56 | Advanced |
+| GraphQL | 95 | Intermediate |
+| Message Queue | 52 | Intermediate |
+| WebSocket | 96 | Intermediate |
+
+## Tier 3: DevOps Skills
+| ทักษะ | บท | ระดับหลังจบ |
+|------|---|------------|
+| Docker | 80 | Advanced |
+| Kubernetes | 80, 82 | Intermediate |
+| CI/CD | 79 | Advanced |
+| Monitoring | 83, 97 | Intermediate |
+| Security | 57, 91 | Intermediate |
+| Cloud (AWS/GCP) | 82 | Intermediate |
+
+## Tier 4: Architecture
+| ทักษะ | บท | ระดับหลังจบ |
+|------|---|------------|
+| Microservices | 51, 81 | Intermediate |
+| Event-Driven | 94 | Intermediate |
+| High Availability | 90 | Intermediate |
+| Multi-Tenant | 92 | Basic |
+| API Gateway | 93 | Intermediate |
+
+## Tier 5: Business & Soft Skills
+| ทักษะ | บท | ระดับหลังจบ |
+|------|---|------------|
+| Analytics & Data | 83, 97 | Intermediate |
+| Team Management | 99 | Basic |
+| Production Ops | 100 | Advanced |
+| PDPA Compliance | 100 | Basic |
+| Cost Optimization | 98 | Basic |
+```
+
+---
+
+## สรุป: จาก 0 ถึง Production-Ready
+
+ตลอด 100 บทที่ผ่านมา คุณได้เดินทางจาก:
+
+```
+บทที่ 1:  "LINE OA คืออะไร?"
+    ↓
+บทที่ 10: "สร้าง Flex Message ได้แล้ว"
+    ↓
+บทที่ 30: "ระบบ Broadcast และ Segmentation"
+    ↓
+บทที่ 60: "Performance Optimization"
+    ↓
+บทที่ 80: "Kubernetes & CI/CD"
+    ↓
+บทที่ 90: "High Availability Design"
+    ↓
+บทที่ 99: "Team & Process"
+    ↓
+บทที่ 100: "Production Best Practices"
+           "YOU ARE HERE - READY TO BUILD!"
+```
+
+**คุณตอนนี้:**
+- เขียน LINE Bot ระดับ Production ได้
+- ออกแบบ Scalable Architecture ได้
+- Deploy บน Kubernetes ได้
+- Monitor และ Respond to Incidents ได้
+- สร้างและ Lead ทีมได้
+- Comply กับ PDPA ได้
+
+**คุณพร้อมแล้ว ออกไปสร้างสิ่งที่ยิ่งใหญ่!** 🚀
+
+---
+
+## ภาคผนวก F: Capstone Project - Restaurant Ordering System
+
+### F.1 Project Overview
+
+```
+Multi-Store Restaurant Ordering System บน LINE OA
+══════════════════════════════════════════════════
+
+Features:
+├── 🍜 Menu browsing (Flex Message Carousel)
+├── 🛒 Shopping cart (Redis)
+├── 💳 Payment (PromptPay QR / LINE Pay)
+├── 📱 Order status real-time
+├── 👨‍🍳 Kitchen display (LIFF)
+├── 📊 Analytics dashboard (LIFF)
+├── 🏪 Multi-store support
+└── 📣 Broadcast promotions
+
+Architecture:
+     LINE App
+       │
+  ┌────▼────┐
+  │  LIFF   │◄──── React + TypeScript
+  └────┬────┘
+       │ HTTPS
+  ┌────▼────────────┐
+  │   API Gateway   │
+  └────┬────────────┘
+       │
+  ┌────▼────────────────────────┐
+  │      Microservices           │
+  │  ┌────────┐  ┌────────────┐ │
+  │  │Webhook │  │Order Svc   │ │
+  │  └────────┘  └────────────┘ │
+  │  ┌────────┐  ┌────────────┐ │
+  │  │Menu Svc│  │Payment Svc │ │
+  │  └────────┘  └────────────┘ │
+  │  ┌────────┐  ┌────────────┐ │
+  │  │Kitchen │  │Analytics   │ │
+  │  │Display │  │Service     │ │
+  │  └────────┘  └────────────┘ │
+  └─────────────────────────────┘
+       │
+  ┌────▼────────────────────────┐
+  │         Data Layer           │
+  │  PostgreSQL  Redis  S3       │
+  └─────────────────────────────┘
+```
+
+### F.2 Database Schema (Core Tables)
+
+```sql
+-- Restaurant System Core Schema
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- Stores
+CREATE TABLE stores (
+  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name         VARCHAR(100) NOT NULL,
+  slug         VARCHAR(50) UNIQUE NOT NULL,
+  line_oa_id   VARCHAR(50) UNIQUE,
+  address      TEXT,
+  phone        VARCHAR(20),
+  is_open      BOOLEAN DEFAULT true,
+  open_time    TIME DEFAULT '09:00',
+  close_time   TIME DEFAULT '22:00',
+  timezone     VARCHAR(50) DEFAULT 'Asia/Bangkok',
+  logo_url     VARCHAR(500),
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Menu Categories
+CREATE TABLE categories (
+  id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  store_id   UUID REFERENCES stores(id) ON DELETE CASCADE,
+  name       VARCHAR(100) NOT NULL,
+  icon_emoji VARCHAR(10),
+  sort_order SMALLINT DEFAULT 0,
+  is_active  BOOLEAN DEFAULT true
+);
+
+-- Menu Items
+CREATE TABLE menu_items (
+  id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  store_id         UUID REFERENCES stores(id) ON DELETE CASCADE,
+  category_id      UUID REFERENCES categories(id),
+  name             VARCHAR(100) NOT NULL,
+  name_en          VARCHAR(100),
+  description      TEXT,
+  price            NUMERIC(10,2) NOT NULL CHECK (price >= 0),
+  image_url        VARCHAR(500),
+  is_available     BOOLEAN DEFAULT true,
+  is_recommended   BOOLEAN DEFAULT false,
+  prep_time_min    SMALLINT DEFAULT 15,
+  calories         SMALLINT,
+  is_vegetarian    BOOLEAN DEFAULT false,
+  allergens        TEXT[],
+  sort_order       SMALLINT DEFAULT 0,
+  created_at       TIMESTAMPTZ DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Line Users
+CREATE TABLE line_users (
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  line_user_id  VARCHAR(50) UNIQUE NOT NULL,
+  display_name  VARCHAR(200),
+  picture_url   VARCHAR(500),
+  phone         VARCHAR(20),
+  email         VARCHAR(200),
+  tier          VARCHAR(20) DEFAULT 'standard',
+  points        INTEGER DEFAULT 0,
+  is_blocked    BOOLEAN DEFAULT false,
+  created_at    TIMESTAMPTZ DEFAULT NOW(),
+  last_active   TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Orders
+CREATE TABLE orders (
+  id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  store_id         UUID REFERENCES stores(id),
+  user_id          UUID REFERENCES line_users(id),
+  order_number     VARCHAR(20) UNIQUE NOT NULL,
+  status           VARCHAR(30) NOT NULL DEFAULT 'pending_payment',
+  delivery_type    VARCHAR(20) NOT NULL CHECK (delivery_type IN ('dine_in','takeaway','delivery')),
+  table_number     VARCHAR(10),
+  subtotal         NUMERIC(10,2) NOT NULL,
+  delivery_fee     NUMERIC(10,2) DEFAULT 0,
+  discount         NUMERIC(10,2) DEFAULT 0,
+  total            NUMERIC(10,2) NOT NULL,
+  notes            TEXT,
+  est_ready_min    SMALLINT,
+  confirmed_at     TIMESTAMPTZ,
+  ready_at         TIMESTAMPTZ,
+  completed_at     TIMESTAMPTZ,
+  cancelled_at     TIMESTAMPTZ,
+  cancel_reason    TEXT,
+  created_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_orders_store_created  ON orders(store_id, created_at DESC);
+CREATE INDEX idx_orders_user           ON orders(user_id, created_at DESC);
+CREATE INDEX idx_orders_status_store   ON orders(status, store_id)
+  WHERE status NOT IN ('completed','cancelled');
+
+-- Order Items
+CREATE TABLE order_items (
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  order_id      UUID REFERENCES orders(id) ON DELETE CASCADE,
+  menu_item_id  UUID REFERENCES menu_items(id),
+  item_name     VARCHAR(100) NOT NULL,  -- snapshot at order time
+  quantity      SMALLINT NOT NULL CHECK (quantity > 0),
+  unit_price    NUMERIC(10,2) NOT NULL,
+  total_price   NUMERIC(10,2) NOT NULL,
+  notes         TEXT
+);
+
+-- Payments
+CREATE TABLE payments (
+  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  order_id        UUID REFERENCES orders(id) UNIQUE,
+  method          VARCHAR(30) NOT NULL,
+  status          VARCHAR(20) NOT NULL DEFAULT 'pending',
+  amount          NUMERIC(10,2) NOT NULL,
+  transaction_ref VARCHAR(100),
+  qr_code_url     VARCHAR(500),
+  paid_at         TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Loyalty Points Log
+CREATE TABLE points_log (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id     UUID REFERENCES line_users(id),
+  order_id    UUID REFERENCES orders(id),
+  delta       INTEGER NOT NULL,  -- positive = earn, negative = redeem
+  balance     INTEGER NOT NULL,
+  reason      VARCHAR(100),
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+### F.3 Backend Service Implementation
+
+```typescript
+// services/MenuService.ts
+import { Pool } from 'pg';
+import Redis from 'ioredis';
+
+export class MenuService {
+  private readonly CACHE_TTL = 300; // 5 minutes
+  
+  constructor(
+    private db: Pool,
+    private cache: Redis
+  ) {}
+  
+  async getStoreMenu(storeId: string): Promise<StoreMenu> {
+    const cacheKey = `menu:${storeId}`;
+    
+    // Try cache first
+    const cached = await this.cache.get(cacheKey);
+    if (cached) return JSON.parse(cached);
+    
+    // Fetch from DB
+    const [categoriesResult, itemsResult] = await Promise.all([
+      this.db.query(
+        `SELECT id, name, icon_emoji, sort_order
+         FROM categories
+         WHERE store_id = $1 AND is_active = true
+         ORDER BY sort_order, name`,
+        [storeId]
+      ),
+      this.db.query(
+        `SELECT mi.id, mi.category_id, mi.name, mi.description,
+                mi.price, mi.image_url, mi.is_recommended,
+                mi.prep_time_min, mi.is_vegetarian, mi.allergens
+         FROM menu_items mi
+         WHERE mi.store_id = $1 AND mi.is_available = true
+         ORDER BY mi.sort_order, mi.name`,
+        [storeId]
+      )
+    ]);
+    
+    const menu: StoreMenu = {
+      categories: categoriesResult.rows,
+      items: itemsResult.rows,
+      cachedAt: new Date().toISOString()
+    };
+    
+    // Cache for 5 minutes
+    await this.cache.setex(cacheKey, this.CACHE_TTL, JSON.stringify(menu));
+    
+    return menu;
+  }
+  
+  // Invalidate cache when menu changes
+  async invalidateMenuCache(storeId: string): Promise<void> {
+    await this.cache.del(`menu:${storeId}`);
+  }
+  
+  // Build Flex Message for menu carousel
+  buildMenuCarousel(items: MenuItem[], storeId: string): FlexMessage {
+    const bubbles = items.slice(0, 10).map(item => ({
+      type: 'bubble',
+      size: 'kilo',
+      hero: item.image_url ? {
+        type: 'image',
+        url: item.image_url,
+        size: 'full',
+        aspectRatio: '20:13',
+        aspectMode: 'cover'
+      } : undefined,
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'sm',
+        contents: [
+          {
+            type: 'text',
+            text: item.name,
+            weight: 'bold',
+            size: 'md',
+            wrap: true
+          },
+          {
+            type: 'text',
+            text: item.description || '',
+            size: 'sm',
+            color: '#888888',
+            wrap: true,
+            maxLines: 2
+          },
+          {
+            type: 'box',
+            layout: 'baseline',
+            contents: [
+              {
+                type: 'text',
+                text: `฿${item.price.toFixed(0)}`,
+                size: 'xl',
+                weight: 'bold',
+                color: '#06C755'
+              }
+            ]
+          }
+        ]
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [{
+          type: 'button',
+          style: 'primary',
+          color: '#06C755',
+          height: 'sm',
+          action: {
+            type: 'postback',
+            label: 'เพิ่มใส่ตะกร้า',
+            data: `action=add_to_cart&itemId=${item.id}&storeId=${storeId}`
+          }
+        }]
+      }
+    }));
+    
+    return {
+      type: 'flex',
+      altText: 'เมนูอาหาร',
+      contents: {
+        type: 'carousel',
+        contents: bubbles
+      }
+    };
+  }
+}
+
+// services/CartService.ts
+interface CartItem {
+  menuItemId: string;
+  name: string;
+  price: number;
+  quantity: number;
+  notes?: string;
+}
+
+interface Cart {
+  storeId: string;
+  items: CartItem[];
+  updatedAt: string;
+}
+
+export class CartService {
+  private readonly CART_TTL = 86400; // 24 hours
+  
+  constructor(private cache: Redis) {}
+  
+  private cartKey(userId: string, storeId: string): string {
+    return `cart:${userId}:${storeId}`;
+  }
+  
+  async getCart(userId: string, storeId: string): Promise<Cart | null> {
+    const data = await this.cache.get(this.cartKey(userId, storeId));
+    return data ? JSON.parse(data) : null;
+  }
+  
+  async addItem(userId: string, storeId: string, item: CartItem): Promise<Cart> {
+    let cart = await this.getCart(userId, storeId) ?? {
+      storeId,
+      items: [],
+      updatedAt: new Date().toISOString()
+    };
+    
+    const idx = cart.items.findIndex(i => i.menuItemId === item.menuItemId);
+    if (idx >= 0) {
+      cart.items[idx].quantity += item.quantity;
+    } else {
+      cart.items.push(item);
+    }
+    
+    cart.updatedAt = new Date().toISOString();
+    await this.cache.setex(
+      this.cartKey(userId, storeId),
+      this.CART_TTL,
+      JSON.stringify(cart)
+    );
+    
+    return cart;
+  }
+  
+  async removeItem(userId: string, storeId: string, menuItemId: string): Promise<Cart> {
+    const cart = await this.getCart(userId, storeId);
+    if (!cart) throw new Error('Cart not found');
+    
+    cart.items = cart.items.filter(i => i.menuItemId !== menuItemId);
+    cart.updatedAt = new Date().toISOString();
+    
+    await this.cache.setex(
+      this.cartKey(userId, storeId),
+      this.CART_TTL,
+      JSON.stringify(cart)
+    );
+    
+    return cart;
+  }
+  
+  async clearCart(userId: string, storeId: string): Promise<void> {
+    await this.cache.del(this.cartKey(userId, storeId));
+  }
+  
+  calculateTotal(cart: Cart): { subtotal: number; itemCount: number } {
+    const subtotal = cart.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const itemCount = cart.items.reduce((sum, item) => sum + item.quantity, 0);
+    return { subtotal, itemCount };
+  }
+  
+  buildCartSummaryFlex(cart: Cart, userId: string): FlexMessage {
+    const { subtotal, itemCount } = this.calculateTotal(cart);
+    
+    const itemRows = cart.items.map(item => ({
+      type: 'box',
+      layout: 'horizontal',
+      contents: [
+        { type: 'text', text: `${item.quantity}x ${item.name}`, flex: 3, size: 'sm', wrap: true },
+        { type: 'text', text: `฿${(item.price * item.quantity).toFixed(0)}`, flex: 1, size: 'sm', align: 'end' }
+      ]
+    }));
+    
+    return {
+      type: 'flex',
+      altText: `ตะกร้า ${itemCount} รายการ - ฿${subtotal.toFixed(0)}`,
+      contents: {
+        type: 'bubble',
+        header: {
+          type: 'box', layout: 'vertical',
+          backgroundColor: '#06C755',
+          contents: [{
+            type: 'text',
+            text: `🛒 ตะกร้าสินค้า (${itemCount} รายการ)`,
+            color: '#FFFFFF',
+            weight: 'bold'
+          }]
+        },
+        body: {
+          type: 'box',
+          layout: 'vertical',
+          spacing: 'sm',
+          contents: [
+            ...itemRows,
+            { type: 'separator', margin: 'md' },
+            {
+              type: 'box',
+              layout: 'horizontal',
+              margin: 'md',
+              contents: [
+                { type: 'text', text: 'รวมทั้งหมด', weight: 'bold', flex: 2 },
+                { type: 'text', text: `฿${subtotal.toFixed(0)}`, weight: 'bold', color: '#06C755', flex: 1, align: 'end' }
+              ]
+            }
+          ]
+        },
+        footer: {
+          type: 'box',
+          layout: 'vertical',
+          spacing: 'sm',
+          contents: [
+            {
+              type: 'button',
+              style: 'primary',
+              color: '#06C755',
+              action: {
+                type: 'postback',
+                label: 'สั่งอาหาร',
+                data: `action=checkout&storeId=${cart.storeId}`
+              }
+            },
+            {
+              type: 'button',
+              style: 'secondary',
+              action: {
+                type: 'postback',
+                label: 'ดูเมนูเพิ่ม',
+                data: `action=view_menu&storeId=${cart.storeId}`
+              }
+            }
+          ]
+        }
+      }
+    };
+  }
+}
+```
+
+### F.4 LIFF Kitchen Display
+
+```typescript
+// liff/KitchenDisplay.tsx
+// หน้าจอสำหรับ Kitchen Staff ดูออเดอร์
+
+import React, { useEffect, useState, useCallback } from 'react';
+import liff from '@line/liff';
+
+interface Order {
+  id: string;
+  orderNumber: string;
+  status: 'confirmed' | 'preparing' | 'ready';
+  items: Array<{ name: string; quantity: number; notes?: string }>;
+  deliveryType: string;
+  tableNumber?: string;
+  createdAt: string;
+  estimatedMinutes: number;
+}
+
+const STATUS_COLORS = {
+  confirmed: 'bg-yellow-100 border-yellow-400',
+  preparing: 'bg-blue-100 border-blue-400',
+  ready: 'bg-green-100 border-green-400'
+} as const;
+
+const STATUS_LABELS = {
+  confirmed: 'รอเตรียม',
+  preparing: 'กำลังทำ',
+  ready: 'พร้อมเสิร์ฟ'
+} as const;
+
+export default function KitchenDisplay() {
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [storeId, setStoreId] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [lastUpdate, setLastUpdate] = useState(new Date());
+  
+  useEffect(() => {
+    initKitchenDisplay();
+  }, []);
+  
+  async function initKitchenDisplay() {
+    await liff.init({ liffId: import.meta.env.VITE_KITCHEN_LIFF_ID });
+    
+    const params = new URLSearchParams(window.location.search);
+    const sid = params.get('storeId') || '';
+    setStoreId(sid);
+    
+    await loadOrders(sid);
+    setLoading(false);
+    
+    // Auto-refresh every 30 seconds
+    const interval = setInterval(() => loadOrders(sid), 30000);
+    return () => clearInterval(interval);
+  }
+  
+  const loadOrders = useCallback(async (sid: string) => {
+    const token = await liff.getAccessToken();
+    const res = await fetch(`/api/kitchen/orders?storeId=${sid}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const data = await res.json();
+    setOrders(data.orders || []);
+    setLastUpdate(new Date());
+  }, []);
+  
+  async function updateOrderStatus(orderId: string, newStatus: string) {
+    const token = await liff.getAccessToken();
+    await fetch(`/api/kitchen/orders/${orderId}/status`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ status: newStatus })
+    });
+    await loadOrders(storeId);
+  }
+  
+  if (loading) return (
+    <div className="flex items-center justify-center h-screen bg-gray-900">
+      <div className="text-white text-xl">Loading Kitchen Display...</div>
+    </div>
+  );
+  
+  const columns = {
+    confirmed: orders.filter(o => o.status === 'confirmed'),
+    preparing: orders.filter(o => o.status === 'preparing'),
+    ready: orders.filter(o => o.status === 'ready')
+  };
+  
+  return (
+    <div className="min-h-screen bg-gray-900 p-4">
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-white text-2xl font-bold">Kitchen Display</h1>
+        <span className="text-gray-400 text-sm">
+          Updated: {lastUpdate.toLocaleTimeString('th-TH')}
+        </span>
+      </div>
+      
+      <div className="grid grid-cols-3 gap-4">
+        {(Object.keys(columns) as Array<keyof typeof columns>).map(status => (
+          <div key={status} className="space-y-3">
+            <div className="text-center">
+              <span className={`inline-block px-3 py-1 rounded-full text-sm font-bold
+                ${status === 'confirmed' ? 'bg-yellow-500 text-black' :
+                  status === 'preparing' ? 'bg-blue-500 text-white' : 'bg-green-500 text-white'}`}>
+                {STATUS_LABELS[status]} ({columns[status].length})
+              </span>
+            </div>
+            
+            {columns[status].map(order => (
+              <div key={order.id}
+                   className={`rounded-lg border-2 p-3 ${STATUS_COLORS[status]}`}>
+                <div className="flex justify-between items-start mb-2">
+                  <span className="font-bold text-lg"># {order.orderNumber}</span>
+                  {order.tableNumber && (
+                    <span className="bg-gray-800 text-white px-2 py-0.5 rounded text-sm">
+                      โต๊ะ {order.tableNumber}
+                    </span>
+                  )}
+                </div>
+                
+                <ul className="space-y-1 mb-3">
+                  {order.items.map((item, i) => (
+                    <li key={i} className="text-sm">
+                      <span className="font-bold">{item.quantity}x</span> {item.name}
+                      {item.notes && <span className="text-gray-600 ml-1">({item.notes})</span>}
+                    </li>
+                  ))}
+                </ul>
+                
+                {status === 'confirmed' && (
+                  <button
+                    onClick={() => updateOrderStatus(order.id, 'preparing')}
+                    className="w-full bg-blue-500 text-white py-2 rounded font-bold">
+                    เริ่มทำ
+                  </button>
+                )}
+                {status === 'preparing' && (
+                  <button
+                    onClick={() => updateOrderStatus(order.id, 'ready')}
+                    className="w-full bg-green-500 text-white py-2 rounded font-bold">
+                    พร้อมแล้ว
+                  </button>
+                )}
+                {status === 'ready' && (
+                  <button
+                    onClick={() => updateOrderStatus(order.id, 'delivered')}
+                    className="w-full bg-gray-500 text-white py-2 rounded font-bold">
+                    ส่งแล้ว
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+### F.5 Deployment สำหรับ Capstone Project
+
+```yaml
+# docker-compose.yml - Local Development
+
+version: '3.9'
+
+services:
+  webhook:
+    build:
+      context: ./services/webhook
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3000"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://admin:password@postgres:5432/restaurant
+      - REDIS_URL=redis://redis:6379
+      - LINE_CHANNEL_ACCESS_TOKEN=${LINE_CHANNEL_ACCESS_TOKEN}
+      - LINE_CHANNEL_SECRET=${LINE_CHANNEL_SECRET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./services/webhook/src:/app/src
+    command: npm run dev
+
+  api:
+    build:
+      context: ./services/api
+    ports:
+      - "3002:3000"
+    environment:
+      - DATABASE_URL=postgresql://admin:password@postgres:5432/restaurant
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./services/api/src:/app/src
+    command: npm run dev
+
+  liff:
+    build:
+      context: ./liff
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_URL=http://localhost:3002
+      - VITE_LIFF_ID=${LIFF_ID}
+      - VITE_KITCHEN_LIFF_ID=${KITCHEN_LIFF_ID}
+    volumes:
+      - ./liff/src:/app/src
+    command: npm run dev
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=restaurant
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d restaurant"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - webhook
+      - api
+      - liff
+
+volumes:
+  postgres_data:
+  redis_data:
+```
+
+```dockerfile
+# Dockerfile สำหรับ Production
+
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+RUN npm ci --only=production
+
+# Copy source
+COPY src ./src
+COPY tsconfig.json ./
+
+# Build
+RUN npm run build
+
+# Production stage
+FROM node:20-alpine AS production
+
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+WORKDIR /app
+
+# Copy built files
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY package.json ./
+
+# Security: run as non-root
+USER appuser
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
+  CMD wget -qO- http://localhost:3000/health || exit 1
+
+EXPOSE 3000
+
+CMD ["node", "dist/index.js"]
+```
+
+---
+
+## ภาคผนวก G: Production Readiness Final Scorecard
+
+```markdown
+# Final Production Readiness Assessment
+
+ใช้ scorecard นี้ก่อน launch ทุกครั้ง
+คะแนนแต่ละข้อ: 0=ยังไม่ทำ, 1=ทำบางส่วน, 2=ทำครบ
+
+## Domain 1: Architecture (max 16 points)
+□ Horizontal scaling ready       __/2
+□ No single point of failure     __/2
+□ Circuit breakers implemented   __/2
+□ Health check endpoints ready   __/2
+□ Graceful shutdown handled      __/2
+□ Auto-scaling configured        __/2
+□ Backup & restore tested        __/2
+□ DR procedure documented        __/2
+                    Subtotal: __/16
+
+## Domain 2: Security (max 20 points)
+□ LINE signature validation      __/2
+□ Input validation all endpoints __/2
+□ SQL injection prevented        __/2
+□ Secrets in vault/env only      __/2
+□ TLS 1.2+ enforced             __/2
+□ Security headers set           __/2
+□ Rate limiting enabled          __/2
+□ Container scan passed          __/2
+□ PDPA consent implemented       __/2
+□ Penetration test done          __/2
+                    Subtotal: __/20
+
+## Domain 3: Performance (max 12 points)
+□ P95 response time < 200ms     __/2
+□ Load test 3x traffic passed    __/2
+□ Database queries optimized     __/2
+□ Caching implemented            __/2
+□ CDN for static assets          __/2
+□ No N+1 query problems          __/2
+                    Subtotal: __/12
+
+## Domain 4: Monitoring (max 12 points)
+□ Metrics exposed & scraped      __/2
+□ Dashboards created             __/2
+□ P1 alerts → phone call         __/2
+□ P2 alerts → messaging          __/2
+□ Centralized logging            __/2
+□ Error tracking (Sentry)        __/2
+                    Subtotal: __/12
+
+## Domain 5: Operations (max 10 points)
+□ Runbook documented             __/2
+□ On-call rotation set           __/2
+□ Rollback tested                __/2
+□ Incident process defined       __/2
+□ Post-mortem template ready     __/2
+                    Subtotal: __/10
+
+## Domain 6: Testing (max 10 points)
+□ Unit coverage > 80%            __/2
+□ Integration tests pass         __/2
+□ E2E critical paths covered     __/2
+□ Load testing passed            __/2
+□ Regression suite automated     __/2
+                    Subtotal: __/10
+
+## Total Score: __/80
+
+## Scoring Guide
+- 72-80 (90%+)    🟢 LAUNCH READY
+- 60-71 (75-89%)  🟡 MOSTLY READY - fix gaps first
+- 40-59 (50-74%)  🔴 NOT READY - significant work needed
+- < 40  (< 50%)   ⛔ DO NOT LAUNCH
+
+## Non-Negotiables (must be 2/2)
+These 5 items must be perfect before any launch:
+1. LINE Webhook Signature Validation
+2. Input Validation on all endpoints
+3. Secrets not in source code
+4. Health check endpoints working
+5. Rollback procedure tested and documented
+```
+
+---
+
+*🎉 จบแล้ว! Course LINE OA Development - 100 Parts Complete!*
+
+*"The best time to plant a tree was 20 years ago. The second best time is now."*
+
+*"Code is like humor. When you have to explain it, it's bad." - Cory House*
+
+*"Programs must be written for people to read, and only incidentally for machines to execute." - Harold Abelson*
+
+*ออกไปสร้าง LINE Bot ที่ดีที่สุดในประเทศไทยได้เลย! 🇹🇭*
+
+*— Team LINE OA Course*
