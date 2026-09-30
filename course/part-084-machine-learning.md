@@ -1483,3 +1483,382 @@ MLflow ช่วยในการ track experiments, version models, และ 
 ---
 
 *จบ Part 84: Machine Learning สำหรับ LINE Bots*
+
+---
+
+## 11. Content Personalization
+
+### 11.1 Personalization Engine
+
+```python
+# ml/personalization/content_personalizer.py
+import pandas as pd
+import numpy as np
+from typing import List, Dict, Optional
+
+class ContentPersonalizer:
+    """
+    Personalize LINE Bot content based on user behavior and segment
+    """
+    
+    def __init__(self, recommender, segmenter, user_features_store):
+        self.recommender = recommender
+        self.segmenter = segmenter
+        self.user_features = user_features_store
+    
+    def get_personalized_rich_menu(self, user_id: str) -> Dict:
+        """
+        เลือก Rich Menu ที่เหมาะกับ user
+        """
+        # Get user segment
+        user_features = self.user_features.get(user_id)
+        
+        if not user_features:
+            return self.get_default_rich_menu()
+        
+        segment = user_features.get('segment', 'unknown')
+        purchase_count = user_features.get('purchase_count', 0)
+        ltv = user_features.get('ltv', 0)
+        
+        # VIP users ได้ special menu
+        if ltv > 10000 or purchase_count > 10:
+            return self.get_vip_rich_menu()
+        
+        # First-time buyers
+        if purchase_count == 0:
+            return self.get_new_user_rich_menu()
+        
+        # Segment-based menus
+        segment_menus = {
+            'Champions': self.get_champions_rich_menu,
+            'Loyal Customers': self.get_loyal_rich_menu,
+            'At Risk': self.get_retention_rich_menu,
+            'Hibernating': self.get_winback_rich_menu,
+        }
+        
+        menu_fn = segment_menus.get(segment, self.get_default_rich_menu)
+        return menu_fn()
+    
+    def get_personalized_broadcast_content(self, user_id: str, campaign_type: str) -> Dict:
+        """
+        สร้าง personalized content สำหรับ broadcast
+        """
+        user_features = self.user_features.get(user_id)
+        recommendations = self.recommender.get_recommendations(user_id, n_recommendations=3)
+        
+        if campaign_type == 'product_recommendation':
+            return self.build_recommendation_message(user_features, recommendations)
+        elif campaign_type == 'winback':
+            return self.build_winback_message(user_features)
+        elif campaign_type == 'loyalty':
+            return self.build_loyalty_message(user_features)
+        
+        return self.build_generic_message(user_features)
+    
+    def build_recommendation_message(self, user_features, recommendations):
+        """สร้าง Flex Message สำหรับ product recommendations"""
+        
+        if not recommendations:
+            return None
+        
+        name = user_features.get('display_name', 'คุณลูกค้า') if user_features else 'คุณลูกค้า'
+        
+        product_bubbles = []
+        for rec in recommendations[:3]:
+            product = rec.get('metadata', {})
+            bubble = {
+                "type": "bubble",
+                "size": "micro",
+                "hero": {
+                    "type": "image",
+                    "url": product.get('image_url', 'https://example.com/product.jpg'),
+                    "size": "full",
+                    "aspectRatio": "4:3",
+                    "aspectMode": "cover"
+                },
+                "body": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {
+                            "type": "text",
+                            "text": product.get('name', 'สินค้า'),
+                            "size": "sm",
+                            "wrap": True
+                        },
+                        {
+                            "type": "text",
+                            "text": f"฿{product.get('price', 0):,.0f}",
+                            "size": "lg",
+                            "weight": "bold",
+                            "color": "#FF0000"
+                        }
+                    ]
+                },
+                "footer": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [{
+                        "type": "button",
+                        "action": {
+                            "type": "postback",
+                            "label": "ดูรายละเอียด",
+                            "data": f"action=view_product&product_id={product.get('id', '')}"
+                        },
+                        "style": "primary",
+                        "height": "sm"
+                    }]
+                }
+            }
+            product_bubbles.append(bubble)
+        
+        return {
+            "type": "flex",
+            "altText": f"สินค้าแนะนำสำหรับ {name}",
+            "contents": {
+                "type": "carousel",
+                "contents": product_bubbles
+            }
+        }
+    
+    def get_default_rich_menu(self):
+        return {"richMenuId": "richmenu-default"}
+    
+    def get_vip_rich_menu(self):
+        return {"richMenuId": "richmenu-vip"}
+    
+    def get_new_user_rich_menu(self):
+        return {"richMenuId": "richmenu-new-user"}
+    
+    def get_loyal_rich_menu(self):
+        return {"richMenuId": "richmenu-loyal"}
+    
+    def get_champions_rich_menu(self):
+        return {"richMenuId": "richmenu-champions"}
+    
+    def get_retention_rich_menu(self):
+        return {"richMenuId": "richmenu-retention"}
+    
+    def get_winback_rich_menu(self):
+        return {"richMenuId": "richmenu-winback"}
+    
+    def build_winback_message(self, user_features):
+        name = user_features.get('display_name', 'คุณลูกค้า') if user_features else 'คุณลูกค้า'
+        return {
+            "type": "flex",
+            "altText": f"เราคิดถึงคุณ {name}!",
+            "contents": {
+                "type": "bubble",
+                "body": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {"type": "text", "text": f"สวัสดีคุณ {name}!", "weight": "bold", "size": "xl"},
+                        {"type": "text", "text": "เราไม่ได้เจอกันนานแล้ว! มาช็อปปิ้งด้วยกันไหม?", "wrap": True},
+                        {"type": "text", "text": "รับส่วนลด 20% สำหรับการสั่งซื้อครั้งต่อไป", "color": "#FF0000", "weight": "bold"}
+                    ]
+                },
+                "footer": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [{
+                        "type": "button",
+                        "action": {"type": "uri", "label": "ช็อปเลย!", "uri": "https://shop.example.com"},
+                        "style": "primary"
+                    }]
+                }
+            }
+        }
+    
+    def build_loyalty_message(self, user_features):
+        points = user_features.get('loyalty_points', 0) if user_features else 0
+        return {
+            "type": "text",
+            "text": f"คุณมี {points} คะแนนสะสม! แลกรับของรางวัลได้เลยครับ"
+        }
+    
+    def build_generic_message(self, user_features):
+        return {
+            "type": "text",
+            "text": "สวัสดีครับ! มีสินค้าใหม่มาแนะนำ มาดูกันได้เลยนะครับ"
+        }
+```
+
+---
+
+## 12. Model Monitoring in Production
+
+```python
+# ml/monitoring/model_monitor.py
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+from typing import Dict, List
+
+class ModelDriftDetector:
+    """
+    ตรวจจับ data drift และ concept drift ใน ML models
+    """
+    
+    def __init__(self, reference_data: pd.DataFrame):
+        """
+        reference_data: training data distribution เป็น baseline
+        """
+        self.reference_stats = self.compute_statistics(reference_data)
+        self.drift_threshold = 0.1  # 10% drift threshold
+    
+    def compute_statistics(self, df: pd.DataFrame) -> Dict:
+        """คำนวณ statistics ของ data"""
+        stats = {}
+        
+        for col in df.select_dtypes(include=[np.number]).columns:
+            stats[col] = {
+                'mean': float(df[col].mean()),
+                'std': float(df[col].std()),
+                'min': float(df[col].min()),
+                'max': float(df[col].max()),
+                'p25': float(df[col].quantile(0.25)),
+                'p50': float(df[col].quantile(0.50)),
+                'p75': float(df[col].quantile(0.75)),
+            }
+        
+        return stats
+    
+    def detect_drift(self, current_data: pd.DataFrame) -> Dict:
+        """
+        ตรวจจับ drift ระหว่าง reference และ current data
+        ใช้ Population Stability Index (PSI)
+        """
+        current_stats = self.compute_statistics(current_data)
+        drift_results = {}
+        
+        for col in self.reference_stats:
+            if col not in current_stats:
+                continue
+            
+            ref = self.reference_stats[col]
+            curr = current_stats[col]
+            
+            # Normalized Mean Shift
+            if ref['std'] > 0:
+                mean_shift = abs(curr['mean'] - ref['mean']) / ref['std']
+            else:
+                mean_shift = 0
+            
+            # PSI calculation (simplified)
+            psi = self.calculate_psi(
+                [ref['p25'], ref['p50'], ref['p75']],
+                [curr['p25'], curr['p50'], curr['p75']]
+            )
+            
+            drift_results[col] = {
+                'mean_shift': float(mean_shift),
+                'psi': float(psi),
+                'has_drift': psi > 0.2 or mean_shift > 2.0,
+                'severity': 'high' if psi > 0.25 else 'medium' if psi > 0.1 else 'low',
+            }
+        
+        return drift_results
+    
+    def calculate_psi(self, reference_bins, current_bins):
+        """Calculate Population Stability Index"""
+        psi = 0
+        
+        for ref_val, curr_val in zip(reference_bins, current_bins):
+            if ref_val > 0 and curr_val > 0:
+                psi += (curr_val - ref_val) * np.log(curr_val / ref_val)
+        
+        return abs(psi)
+    
+    def check_prediction_drift(self, predictions_df: pd.DataFrame) -> Dict:
+        """
+        ตรวจสอบ model prediction distribution drift
+        """
+        if len(predictions_df) < 100:
+            return {'status': 'insufficient_data'}
+        
+        churn_rate = predictions_df['churn_probability'].mean()
+        
+        # Alert ถ้า predicted churn rate เปลี่ยนมากผิดปกติ
+        baseline_churn_rate = 0.15  # 15% baseline
+        
+        if abs(churn_rate - baseline_churn_rate) > 0.1:
+            return {
+                'status': 'drift_detected',
+                'current_churn_rate': float(churn_rate),
+                'baseline_churn_rate': baseline_churn_rate,
+                'deviation': float(abs(churn_rate - baseline_churn_rate)),
+                'action': 'retrain_model',
+            }
+        
+        return {
+            'status': 'normal',
+            'current_churn_rate': float(churn_rate),
+        }
+
+
+class MLMetricsCollector:
+    """Collect ML metrics สำหรับ Prometheus"""
+    
+    def __init__(self):
+        from prometheus_client import Counter, Histogram, Gauge
+        
+        self.inference_counter = Counter(
+            'ml_inference_total',
+            'Total ML inference calls',
+            ['model_name', 'status']
+        )
+        
+        self.inference_latency = Histogram(
+            'ml_inference_duration_seconds',
+            'ML inference duration',
+            ['model_name'],
+            buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0]
+        )
+        
+        self.prediction_gauge = Gauge(
+            'ml_prediction_value',
+            'Current ML prediction value',
+            ['model_name', 'metric']
+        )
+        
+        self.drift_gauge = Gauge(
+            'ml_data_drift_psi',
+            'Data drift PSI score',
+            ['model_name', 'feature']
+        )
+    
+    def record_inference(self, model_name: str, duration_s: float, success: bool):
+        status = 'success' if success else 'error'
+        self.inference_counter.labels(model_name=model_name, status=status).inc()
+        self.inference_latency.labels(model_name=model_name).observe(duration_s)
+    
+    def record_drift(self, model_name: str, feature: str, psi: float):
+        self.drift_gauge.labels(model_name=model_name, feature=feature).set(psi)
+```
+
+---
+
+## สรุปสมบูรณ์ Machine Learning
+
+ML stack สมบูรณ์สำหรับ LINE Bot:
+
+| Use Case | Algorithm | Latency | Accuracy |
+|----------|-----------|---------|---------|
+| Intent Classification | WangchanBERTa | < 50ms | ~92% |
+| Product Recommendation | Collaborative Filtering | < 20ms | HR@10: 0.35 |
+| Churn Prediction | Gradient Boosting | < 10ms | AUC: 0.88 |
+| Customer Segmentation | K-Means RFM | Batch | - |
+| LTV Prediction | BG/NBD + Gamma-Gamma | < 10ms | MAE: ±15% |
+| Spam Detection | TF-IDF + Gradient Boosting | < 5ms | F1: 0.95 |
+| Content Personalization | Hybrid (CF + Content-based) | < 30ms | CTR +20% |
+
+Pipeline ควรรัน:
+- Real-time inference: ทุก request
+- Daily batch: Segment update, LTV update
+- Weekly training: Model retraining
+- Monthly evaluation: Full model evaluation
+
+---
+
+*จบ Part 84: Machine Learning สำหรับ LINE Bots (ฉบับสมบูรณ์)*
