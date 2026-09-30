@@ -2,390 +2,333 @@
 
 ## บทนำ
 
-GraphQL เป็น query language สำหรับ API ที่ให้ client กำหนดเองว่าต้องการข้อมูลอะไร ในบทนี้จะครอบคลุมการนำ GraphQL มาใช้กับ LINE Bot backend ตั้งแต่ schema design ไปจนถึง federation สำหรับ microservices
+GraphQL เป็น query language สำหรับ API ที่พัฒนาโดย Facebook ซึ่งให้ความยืดหยุ่นสูงกว่า REST API โดยเฉพาะเมื่อนำมาใช้กับ LIFF frontend ที่ต้องการข้อมูลหลากหลายรูปแบบ ในบทนี้เราจะสร้างระบบ GraphQL API สำหรับ LINE Bot อย่างสมบูรณ์
 
 ---
 
-## 1. ทำไมต้องใช้ GraphQL กับ LINE Bot
+## 1. ทำไมต้องใช้ GraphQL กับ LINE Systems?
 
-### 1.1 ปัญหาของ REST API
+### 1.1 ปัญหาของ REST API กับ LINE Bot
 
+**Over-fetching:** LIFF ต้องการแค่ชื่อและสถานะ แต่ API ส่งข้อมูลทั้งหมด:
 ```
-REST API Problems:
-┌─────────────────────────────────────────────────────────────┐
-│  Overfetching:                                               │
-│  GET /users/123                                              │
-│  → Returns ALL user fields แม้ต้องการแค่ displayName       │
-│                                                             │
-│  Underfetching (N+1 Problem):                               │
-│  GET /conversations/456                                      │
-│  → ได้ conversation แต่ไม่มี messages                      │
-│  GET /conversations/456/messages  ← ต้องเรียกอีก call      │
-│  GET /users/123  ← ต้องเรียกอีก call สำหรับ user info     │
-│                                                             │
-│  Multiple Endpoints:                                        │
-│  /webhook  /messages  /users  /analytics  ...              │
-└─────────────────────────────────────────────────────────────┘
-
-GraphQL Solution:
-┌─────────────────────────────────────────────────────────────┐
-│  query {                                                    │
-│    conversation(id: "456") {                               │
-│      id                                                     │
-│      messages(last: 10) {                                  │
-│        content                                              │
-│        user { displayName pictureUrl }                     │
-│        sentAt                                               │
-│      }                                                      │
-│    }                                                        │
-│  }                                                          │
-│  → Single request, exact data needed                       │
-└─────────────────────────────────────────────────────────────┘
+GET /api/orders/123
+Response: { id, userId, lineUserId, items[10], totalAmount, 
+            address, paymentMethod, shippingProvider, 
+            trackingNumber, createdAt, updatedAt, ... }
 ```
+
+**Under-fetching:** ต้องเรียก API หลาย calls:
+```
+GET /api/user/profile
+GET /api/user/orders
+GET /api/user/loyalty-points
+GET /api/user/coupons
+```
+
+**GraphQL Solution:**
+```graphql
+query GetUserDashboard($userId: ID!) {
+  user(id: $userId) {
+    displayName
+    pictureUrl
+    loyaltyPoints
+    orders(limit: 5) {
+      id
+      status
+      totalAmount
+    }
+    activeCoupons {
+      code
+      discount
+      expiresAt
+    }
+  }
+}
+```
+
+### 1.2 ประโยชน์ของ GraphQL สำหรับ LINE Ecosystem
+
+- **LIFF Integration** - ดึงข้อมูลที่ต้องการได้พอดี
+- **Real-time Subscriptions** - รับ notification เมื่อ order status เปลี่ยน
+- **Strong typing** - TypeScript integration ดีกว่า REST
+- **Apollo DevTools** - Debug ง่าย
+- **Schema Documentation** - Auto-generated docs
 
 ---
 
 ## 2. Schema Design สำหรับ LINE Data
 
-### 2.1 GraphQL Schema
+### 2.1 Core Types
 
 ```graphql
-# schema/schema.graphql
+# schema/types/user.graphql
 
-# Scalar types
-scalar DateTime
-scalar JSON
-scalar Upload
-
-# Enums
-enum MessageType {
-  TEXT
-  IMAGE
-  VIDEO
-  AUDIO
-  FILE
-  STICKER
-  LOCATION
-  FLEX
-  TEMPLATE
-}
-
-enum EventType {
-  MESSAGE
-  POSTBACK
-  FOLLOW
-  UNFOLLOW
-  JOIN
-  LEAVE
-  BEACON
-  ACCOUNT_LINK
-}
-
-enum UserStatus {
-  ACTIVE
-  BLOCKED
-  UNFOLLOWED
-}
-
-enum BroadcastStatus {
-  DRAFT
-  SCHEDULED
-  SENDING
-  COMPLETED
-  FAILED
-}
-
-# Core Types
-type User {
+"""
+LINE User ที่ follow บัญชีของเรา
+"""
+type LineUser {
   id: ID!
   lineUserId: String!
   displayName: String!
   pictureUrl: String
   statusMessage: String
   language: String
-  status: UserStatus!
-  tags: [String!]!
-  metadata: JSON
+  
+  # Business data
+  email: String
+  phone: String
+  loyaltyPoints: Int!
+  tier: UserTier!
+  
+  # Relationships
+  orders(
+    status: OrderStatus
+    limit: Int = 10
+    offset: Int = 0
+  ): [Order!]!
+  
+  activeCoupons: [Coupon!]!
+  cart: Cart
+  addresses: [Address!]!
+  
+  # Meta
   followedAt: DateTime!
-  lastSeenAt: DateTime
-  messageCount: Int!
-  conversationCount: Int!
-  conversations(
-    first: Int
-    after: String
-    last: Int
-    before: String
-    status: ConversationStatus
-  ): ConversationConnection!
-  messages(
-    first: Int
-    after: String
-    last: Int
-    before: String
-    types: [MessageType!]
-  ): MessageConnection!
-  analytics: UserAnalytics!
-}
-
-type UserAnalytics {
-  totalMessages: Int!
-  averageResponseTime: Float
-  mostUsedMessageType: MessageType
-  activityByHour: [HourlyActivity!]!
-  sentimentScore: Float
-}
-
-type HourlyActivity {
-  hour: Int!
-  messageCount: Int!
-}
-
-type Message {
-  id: ID!
-  messageId: String!
-  type: MessageType!
-  content: JSON!
-  direction: MessageDirection!
-  user: User!
-  conversation: Conversation
-  sentAt: DateTime!
-  deliveredAt: DateTime
-  readAt: DateTime
-  replyTo: Message
-  reactions: [MessageReaction!]!
-}
-
-enum MessageDirection {
-  INBOUND
-  OUTBOUND
-}
-
-type MessageReaction {
-  type: String!
-  userId: String!
-  reactedAt: DateTime!
-}
-
-type Conversation {
-  id: ID!
-  user: User!
-  status: ConversationStatus!
-  context: JSON
-  startedAt: DateTime!
-  endedAt: DateTime
-  messages(
-    first: Int
-    after: String
-    last: Int
-    before: String
-  ): MessageConnection!
-  summary: String
+  lastActiveAt: DateTime
+  isBlocked: Boolean!
   tags: [String!]!
-  assignee: Staff
 }
 
-enum ConversationStatus {
-  ACTIVE
-  WAITING
-  RESOLVED
-  CLOSED
+enum UserTier {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
 }
 
-type Staff {
+type Address {
   id: ID!
-  name: String!
-  email: String!
-  role: StaffRole!
-  avatar: String
-}
-
-enum StaffRole {
-  ADMIN
-  AGENT
-  VIEWER
-}
-
-# Rich Menu Types
-type RichMenu {
-  id: ID!
-  lineRichMenuId: String
-  name: String!
-  chatBarText: String!
-  selected: Boolean!
-  size: RichMenuSize!
-  areas: [RichMenuArea!]!
-  imageUrl: String
+  label: String!
+  recipientName: String!
+  phone: String!
+  street: String!
+  subdistrict: String!
+  district: String!
+  province: String!
+  postalCode: String!
   isDefault: Boolean!
+}
+```
+
+```graphql
+# schema/types/order.graphql
+
+type Order {
+  id: ID!
+  orderNumber: String!
+  user: LineUser!
+  items: [OrderItem!]!
+  
+  # Pricing
+  subtotal: Float!
+  shippingFee: Float!
+  discount: Float!
+  totalAmount: Float!
+  
+  # Status
+  status: OrderStatus!
+  paymentStatus: PaymentStatus!
+  
+  # Shipping
+  shippingAddress: Address
+  trackingNumber: String
+  estimatedDelivery: DateTime
+  
+  # Payment
+  payment: Payment
+  
+  # Meta
+  notes: String
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  
+  # Computed fields
+  canCancel: Boolean!
+  canReorder: Boolean!
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PAID
+  PREPARING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+type OrderItem {
+  id: ID!
+  product: Product!
+  quantity: Int!
+  unitPrice: Float!
+  totalPrice: Float!
+  notes: String
+}
+
+type Payment {
+  id: ID!
+  method: PaymentMethod!
+  amount: Float!
+  status: PaymentStatus!
+  transactionId: String
+  paidAt: DateTime
+}
+
+enum PaymentMethod {
+  LINE_PAY
+  CREDIT_CARD
+  BANK_TRANSFER
+  CASH_ON_DELIVERY
+  TRUEMONEY
+}
+```
+
+```graphql
+# schema/types/product.graphql
+
+type Product {
+  id: ID!
+  sku: String!
+  name: String!
+  description: String
+  category: Category!
+  
+  # Pricing
+  price: Float!
+  compareAtPrice: Float
+  
+  # Media
+  images: [ProductImage!]!
+  primaryImage: ProductImage
+  
+  # Inventory
+  stockQuantity: Int!
+  isAvailable: Boolean!
+  
+  # Attributes
+  variants: [ProductVariant!]!
+  tags: [String!]!
+  
+  # Reviews
+  averageRating: Float
+  reviewCount: Int!
+  
   createdAt: DateTime!
   updatedAt: DateTime!
 }
 
-type RichMenuSize {
-  width: Int!
-  height: Int!
+type ProductImage {
+  url: String!
+  altText: String
+  sortOrder: Int!
 }
 
-type RichMenuArea {
-  bounds: RichMenuBounds!
-  action: RichMenuAction!
-}
-
-type RichMenuBounds {
-  x: Int!
-  y: Int!
-  width: Int!
-  height: Int!
-}
-
-union RichMenuAction = MessageAction | URIAction | PostbackAction | DatetimePickerAction
-
-type MessageAction {
-  type: String!
-  label: String!
-  text: String!
-}
-
-type URIAction {
-  type: String!
-  label: String!
-  uri: String!
-}
-
-type PostbackAction {
-  type: String!
-  label: String!
-  data: String!
-  displayText: String
-}
-
-type DatetimePickerAction {
-  type: String!
-  label: String!
-  data: String!
-  mode: String!
-}
-
-# Broadcast Types
-type Broadcast {
+type ProductVariant {
   id: ID!
   name: String!
-  messageContent: JSON!
-  audienceFilter: JSON
-  scheduledAt: DateTime
-  sentAt: DateTime
-  status: BroadcastStatus!
-  statistics: BroadcastStatistics
-  createdAt: DateTime!
-  createdBy: Staff!
+  value: String!
+  priceModifier: Float!
+  stockQuantity: Int!
 }
 
-type BroadcastStatistics {
-  totalTargets: Int!
-  sent: Int!
-  delivered: Int!
-  read: Int!
-  clicked: Int!
-  deliveryRate: Float!
-  readRate: Float!
-  clickRate: Float!
+type Category {
+  id: ID!
+  name: String!
+  slug: String!
+  parentCategory: Category
+  products(limit: Int = 20): [Product!]!
+}
+```
+
+### 2.2 Query Types
+
+```graphql
+# schema/query.graphql
+
+type Query {
+  # User queries
+  me: LineUser
+  user(id: ID!): LineUser
+  users(
+    tier: UserTier
+    search: String
+    limit: Int = 20
+    offset: Int = 0
+  ): UserConnection!
+  
+  # Order queries
+  order(id: ID!): Order
+  orders(
+    userId: ID
+    status: OrderStatus
+    dateFrom: DateTime
+    dateTo: DateTime
+    limit: Int = 20
+    offset: Int = 0
+  ): OrderConnection!
+  
+  # Product queries
+  product(id: ID!): Product
+  products(
+    categoryId: ID
+    search: String
+    minPrice: Float
+    maxPrice: Float
+    inStock: Boolean
+    limit: Int = 20
+    offset: Int = 0
+    sortBy: ProductSortField = CREATED_AT
+    sortOrder: SortOrder = DESC
+  ): ProductConnection!
+  
+  # Analytics
+  analytics(
+    dateFrom: DateTime!
+    dateTo: DateTime!
+  ): AnalyticsSummary!
+  
+  # LINE specific
+  lineUserProfile(lineUserId: String!): LineUserProfile
+  richMenus: [RichMenu!]!
 }
 
-# Analytics Types
-type Analytics {
-  overview: AnalyticsOverview!
-  messageStats(period: AnalyticsPeriod!): MessageStats!
-  userStats(period: AnalyticsPeriod!): UserStats!
-  topMessages(limit: Int!, period: AnalyticsPeriod!): [TopMessage!]!
-}
-
-enum AnalyticsPeriod {
-  TODAY
-  YESTERDAY
-  LAST_7_DAYS
-  LAST_30_DAYS
-  LAST_90_DAYS
-  CUSTOM
-}
-
-type AnalyticsOverview {
-  totalFollowers: Int!
-  activeUsers: Int!
-  newFollowers: Int!
-  unfollowers: Int!
-  messagesSent: Int!
-  messagesReceived: Int!
-  averageResponseTime: Float!
-}
-
-type MessageStats {
-  total: Int!
-  byType: [MessageTypeCount!]!
-  byHour: [HourlyCount!]!
-  byDay: [DailyCount!]!
-}
-
-type MessageTypeCount {
-  type: MessageType!
-  count: Int!
-  percentage: Float!
-}
-
-type HourlyCount {
-  hour: Int!
-  count: Int!
-}
-
-type DailyCount {
-  date: DateTime!
-  count: Int!
-}
-
-type UserStats {
-  total: Int!
-  new: Int!
-  active: Int!
-  inactive: Int!
-  churnRate: Float!
-}
-
-type TopMessage {
-  content: String!
-  count: Int!
-  lastSentAt: DateTime!
-}
-
-# Connection Types (Cursor-based Pagination)
+# Pagination types
 type UserConnection {
-  edges: [UserEdge!]!
-  pageInfo: PageInfo!
+  nodes: [LineUser!]!
   totalCount: Int!
-}
-
-type UserEdge {
-  node: User!
-  cursor: String!
-}
-
-type MessageConnection {
-  edges: [MessageEdge!]!
   pageInfo: PageInfo!
+}
+
+type OrderConnection {
+  nodes: [Order!]!
   totalCount: Int!
-}
-
-type MessageEdge {
-  node: Message!
-  cursor: String!
-}
-
-type ConversationConnection {
-  edges: [ConversationEdge!]!
   pageInfo: PageInfo!
-  totalCount: Int!
 }
 
-type ConversationEdge {
-  node: Conversation!
-  cursor: String!
+type ProductConnection {
+  nodes: [Product!]!
+  totalCount: Int!
+  pageInfo: PageInfo!
 }
 
 type PageInfo {
@@ -395,289 +338,283 @@ type PageInfo {
   endCursor: String
 }
 
-# Root Types
-type Query {
-  # User queries
-  user(id: ID!): User
-  userByLineId(lineUserId: String!): User
-  users(
-    first: Int
-    after: String
-    status: UserStatus
-    search: String
-    tags: [String!]
-  ): UserConnection!
-  
-  # Message queries
-  message(id: ID!): Message
-  messages(
-    first: Int
-    after: String
-    userId: ID
-    types: [MessageType!]
-    fromDate: DateTime
-    toDate: DateTime
-  ): MessageConnection!
-  
-  # Conversation queries
-  conversation(id: ID!): Conversation
-  conversations(
-    first: Int
-    after: String
-    status: ConversationStatus
-    assigneeId: ID
-  ): ConversationConnection!
-  
-  # Rich menu queries
-  richMenus: [RichMenu!]!
-  richMenu(id: ID!): RichMenu
-  defaultRichMenu: RichMenu
-  
-  # Broadcast queries
-  broadcasts(
-    first: Int
-    after: String
-    status: BroadcastStatus
-  ): BroadcastConnection!
-  broadcast(id: ID!): Broadcast
-  
-  # Analytics
-  analytics: Analytics!
-  
-  # Bot settings
-  botSettings: BotSettings!
+enum ProductSortField {
+  NAME
+  PRICE
+  CREATED_AT
+  POPULARITY
+  RATING
 }
 
-type BroadcastConnection {
-  edges: [BroadcastEdge!]!
-  pageInfo: PageInfo!
-  totalCount: Int!
+enum SortOrder {
+  ASC
+  DESC
 }
+```
 
-type BroadcastEdge {
-  node: Broadcast!
-  cursor: String!
-}
+### 2.3 Mutation Types
 
-type BotSettings {
-  welcomeMessage: JSON
-  fallbackMessage: JSON
-  businessHours: BusinessHoursSettings
-  features: BotFeatures!
-}
-
-type BusinessHoursSettings {
-  enabled: Boolean!
-  timezone: String!
-  schedule: JSON!
-  outOfHoursMessage: JSON
-}
-
-type BotFeatures {
-  richMenuEnabled: Boolean!
-  broadcastEnabled: Boolean!
-  analyticsEnabled: Boolean!
-  aiEnabled: Boolean!
-}
+```graphql
+# schema/mutation.graphql
 
 type Mutation {
-  # Message mutations
-  sendMessage(input: SendMessageInput!): SendMessageResult!
-  sendBroadcast(input: SendBroadcastInput!): Broadcast!
+  # Order mutations
+  createOrder(input: CreateOrderInput!): CreateOrderPayload!
+  cancelOrder(id: ID!, reason: String): CancelOrderPayload!
+  reorder(orderId: ID!): CreateOrderPayload!
+  
+  # Cart mutations
+  addToCart(input: AddToCartInput!): Cart!
+  updateCartItem(id: ID!, quantity: Int!): Cart!
+  removeFromCart(id: ID!): Cart!
+  clearCart: Cart!
   
   # User mutations
-  updateUserTags(userId: ID!, tags: [String!]!): User!
-  blockUser(userId: ID!, reason: String): User!
-  unblockUser(userId: ID!): User!
+  updateProfile(input: UpdateProfileInput!): LineUser!
+  addAddress(input: AddAddressInput!): Address!
+  updateAddress(id: ID!, input: UpdateAddressInput!): Address!
+  deleteAddress(id: ID!): Boolean!
+  setDefaultAddress(id: ID!): Address!
   
-  # Rich menu mutations
-  createRichMenu(input: CreateRichMenuInput!): RichMenu!
-  updateRichMenu(id: ID!, input: UpdateRichMenuInput!): RichMenu!
-  deleteRichMenu(id: ID!): Boolean!
-  setDefaultRichMenu(id: ID!): RichMenu!
+  # LINE specific
+  updateRichMenu(id: ID!, input: RichMenuInput!): RichMenu!
+  sendMessage(input: SendMessageInput!): SendMessagePayload!
+  broadcastMessage(input: BroadcastInput!): BroadcastPayload!
   
-  # Broadcast mutations
-  createBroadcast(input: CreateBroadcastInput!): Broadcast!
-  scheduleBroadcast(id: ID!, scheduledAt: DateTime!): Broadcast!
-  cancelBroadcast(id: ID!): Broadcast!
+  # Review mutations
+  createReview(input: CreateReviewInput!): Review!
   
-  # Bot settings
-  updateBotSettings(input: UpdateBotSettingsInput!): BotSettings!
+  # Coupon
+  redeemCoupon(code: String!): RedeemCouponPayload!
 }
+
+# Input types
+input CreateOrderInput {
+  items: [OrderItemInput!]!
+  shippingAddressId: ID!
+  paymentMethod: PaymentMethod!
+  couponCode: String
+  notes: String
+}
+
+input OrderItemInput {
+  productId: ID!
+  variantId: ID
+  quantity: Int!
+  notes: String
+}
+
+input UpdateProfileInput {
+  email: String
+  phone: String
+  birthDate: Date
+  gender: Gender
+}
+
+input AddToCartInput {
+  productId: ID!
+  variantId: ID
+  quantity: Int!
+}
+
+input SendMessageInput {
+  lineUserId: String!
+  messages: [MessageInput!]!
+  type: MessageSendType!
+}
+
+enum MessageSendType {
+  PUSH
+  MULTICAST
+}
+
+input MessageInput {
+  type: String!
+  text: String
+  # Flex message
+  altText: String
+  flexContent: JSON
+}
+
+# Payload types
+type CreateOrderPayload {
+  order: Order!
+  paymentUrl: String
+  linePayPaymentUrl: String
+}
+
+type CancelOrderPayload {
+  order: Order!
+  refundAmount: Float
+}
+
+type SendMessagePayload {
+  success: Boolean!
+  messageIds: [String!]!
+}
+
+type RedeemCouponPayload {
+  coupon: Coupon!
+  discountAmount: Float!
+  newTotal: Float!
+}
+```
+
+### 2.4 Subscription Types
+
+```graphql
+# schema/subscription.graphql
 
 type Subscription {
-  # Real-time message events
-  messageReceived(userId: ID): Message!
-  messageSent(userId: ID): Message!
+  # Order subscriptions
+  orderStatusChanged(orderId: ID!): OrderStatusChangedEvent!
+  newOrder(userId: ID): NewOrderEvent!
   
-  # Broadcast progress
-  broadcastProgress(broadcastId: ID!): BroadcastProgress!
+  # Chat subscriptions
+  newMessage(lineUserId: String!): ChatMessage!
   
-  # User events
-  userFollowed: User!
-  userUnfollowed: User!
+  # Analytics subscriptions
+  realtimeStats: RealtimeStats!
   
-  # Conversation events
-  conversationCreated: Conversation!
-  conversationUpdated(id: ID): Conversation!
+  # Stock subscriptions
+  stockAlert(productId: ID!): StockAlertEvent!
 }
 
-type BroadcastProgress {
-  broadcastId: ID!
-  status: BroadcastStatus!
-  sent: Int!
-  total: Int!
-  percentage: Float!
-  estimatedCompletionAt: DateTime
+type OrderStatusChangedEvent {
+  order: Order!
+  previousStatus: OrderStatus!
+  newStatus: OrderStatus!
+  changedAt: DateTime!
+  changedBy: String
 }
 
-# Input Types
-input SendMessageInput {
-  userId: ID!
-  messageType: MessageType!
-  content: JSON!
-  replyToken: String
+type NewOrderEvent {
+  order: Order!
+  user: LineUser!
 }
 
-input SendMessageResult {
-  success: Boolean!
-  messageId: String
-  error: String
+type ChatMessage {
+  id: ID!
+  lineUserId: String!
+  type: String!
+  text: String
+  timestamp: DateTime!
 }
 
-input SendBroadcastInput {
-  name: String!
-  messageContent: JSON!
-  audienceFilter: JSON
-  scheduledAt: DateTime
+type RealtimeStats {
+  activeUsers: Int!
+  ordersToday: Int!
+  revenueToday: Float!
+  timestamp: DateTime!
 }
 
-input CreateRichMenuInput {
-  name: String!
-  chatBarText: String!
-  selected: Boolean!
-  size: RichMenuSizeInput!
-  areas: [RichMenuAreaInput!]!
-  imageFile: Upload
+type StockAlertEvent {
+  product: Product!
+  stockQuantity: Int!
+  alertType: StockAlertType!
 }
 
-input RichMenuSizeInput {
-  width: Int!
-  height: Int!
-}
-
-input RichMenuAreaInput {
-  bounds: RichMenuBoundsInput!
-  action: JSON!
-}
-
-input RichMenuBoundsInput {
-  x: Int!
-  y: Int!
-  width: Int!
-  height: Int!
-}
-
-input UpdateRichMenuInput {
-  name: String
-  chatBarText: String
-  selected: Boolean
-  areas: [RichMenuAreaInput!]
-  imageFile: Upload
-}
-
-input CreateBroadcastInput {
-  name: String!
-  messageContent: JSON!
-  audienceFilter: JSON
-}
-
-input UpdateBotSettingsInput {
-  welcomeMessage: JSON
-  fallbackMessage: JSON
-  businessHours: BusinessHoursInput
-}
-
-input BusinessHoursInput {
-  enabled: Boolean!
-  timezone: String!
-  schedule: JSON!
-  outOfHoursMessage: JSON
+enum StockAlertType {
+  LOW_STOCK
+  OUT_OF_STOCK
+  BACK_IN_STOCK
 }
 ```
 
 ---
 
-## 3. Apollo Server Setup
+## 3. Apollo Server 4 Setup
 
-### 3.1 Apollo Server Configuration
+### 3.1 Installation และ Configuration
+
+```bash
+npm install @apollo/server graphql graphql-tag
+npm install @graphql-tools/merge @graphql-tools/load
+npm install dataloader
+npm install graphql-ws ws
+npm install graphql-depth-limit graphql-query-complexity
+npm install @types/graphql
+```
 
 ```typescript
-// server/ApolloServer.ts
+// src/graphql/server.ts
 import { ApolloServer } from '@apollo/server';
 import { expressMiddleware } from '@apollo/server/express4';
 import { ApolloServerPluginDrainHttpServer } from '@apollo/server/plugin/drainHttpServer';
-import { makeExecutableSchema } from '@graphql-tools/schema';
 import { WebSocketServer } from 'ws';
 import { useServer } from 'graphql-ws/lib/use/ws';
-import { readFileSync } from 'fs';
-import { join } from 'path';
+import { makeExecutableSchema } from '@graphql-tools/schema';
+import { loadFilesSync } from '@graphql-tools/load-files';
+import { mergeTypeDefs, mergeResolvers } from '@graphql-tools/merge';
 import express from 'express';
 import http from 'http';
-import cors from 'cors';
+import path from 'path';
+import depthLimit from 'graphql-depth-limit';
+import { createComplexityLimitRule } from 'graphql-query-complexity';
 
-import { resolvers } from './resolvers';
-import { AuthContext } from './AuthContext';
-import { DataLoaderFactory } from './DataLoaderFactory';
-import { createComplexityPlugin } from './plugins/ComplexityPlugin';
-import { createLoggingPlugin } from './plugins/LoggingPlugin';
-import { createCachePlugin } from './plugins/CachePlugin';
+import { resolvers as userResolvers } from './resolvers/user.resolver';
+import { resolvers as orderResolvers } from './resolvers/order.resolver';
+import { resolvers as productResolvers } from './resolvers/product.resolver';
+import { resolvers as subscriptionResolvers } from './resolvers/subscription.resolver';
+import { createDataLoaders } from './dataloaders';
+import { authenticate } from '../middleware/auth.middleware';
+import { GraphQLContext } from './context';
 
-interface Context {
-  tenantId: string;
-  userId?: string;
-  scopes: string[];
-  loaders: ReturnType<typeof DataLoaderFactory.create>;
-}
-
-const typeDefs = readFileSync(
-  join(__dirname, '../schema/schema.graphql'),
-  'utf-8'
-);
-
-export async function createApolloServer(): Promise<void> {
+export async function createGraphQLServer() {
   const app = express();
   const httpServer = http.createServer(app);
 
-  // WebSocket สำหรับ Subscriptions
-  const wsServer = new WebSocketServer({
-    server: httpServer,
-    path: '/graphql'
-  });
+  // Load and merge type definitions
+  const typesArray = loadFilesSync(
+    path.join(__dirname, './schema/**/*.graphql')
+  );
+  const typeDefs = mergeTypeDefs(typesArray);
 
+  // Merge resolvers
+  const resolvers = mergeResolvers([
+    userResolvers,
+    orderResolvers,
+    productResolvers,
+    subscriptionResolvers,
+  ]);
+
+  // Create executable schema
   const schema = makeExecutableSchema({ typeDefs, resolvers });
 
-  const serverCleanup = useServer({
-    schema,
-    context: async (ctx) => {
-      const token = ctx.connectionParams?.authorization as string;
-      const authContext = new AuthContext();
-      return authContext.buildWSContext(token);
-    },
-    onConnect: async (ctx) => {
-      const token = ctx.connectionParams?.authorization;
-      if (!token) {
-        throw new Error('Missing authentication token');
-      }
-    },
-    onSubscribe: async (ctx, msg) => {
-      // Log subscription
-      console.log('Subscription:', msg.payload.operationName);
-    }
-  }, wsServer);
+  // WebSocket Server for subscriptions
+  const wsServer = new WebSocketServer({
+    server: httpServer,
+    path: '/graphql',
+  });
 
-  const server = new ApolloServer<Context>({
+  const serverCleanup = useServer(
+    {
+      schema,
+      context: async (ctx) => {
+        const token = ctx.connectionParams?.Authorization as string;
+        const user = token ? await authenticate(token) : null;
+        
+        return {
+          user,
+          dataLoaders: createDataLoaders(),
+          pubsub: global.pubsub,
+        };
+      },
+    },
+    wsServer
+  );
+
+  // Apollo Server
+  const server = new ApolloServer<GraphQLContext>({
     schema,
+    validationRules: [
+      depthLimit(10), // ป้องกัน deeply nested queries
+      createComplexityLimitRule(1000, {
+        onCost: (cost) => {
+          console.log(`Query cost: ${cost}`);
+        },
+      }),
+    ],
     plugins: [
       ApolloServerPluginDrainHttpServer({ httpServer }),
       {
@@ -685,56 +622,71 @@ export async function createApolloServer(): Promise<void> {
           return {
             async drainServer() {
               await serverCleanup.dispose();
-            }
+            },
           };
-        }
+        },
       },
-      createComplexityPlugin({ maxComplexity: 1000 }),
-      createLoggingPlugin(),
-      createCachePlugin()
+      // Custom plugin for logging
+      {
+        async requestDidStart(requestContext) {
+          const startTime = Date.now();
+          
+          return {
+            async willSendResponse(responseContext) {
+              const duration = Date.now() - startTime;
+              console.log({
+                operationName: requestContext.request.operationName,
+                duration,
+                errors: responseContext.response.body.kind === 'single'
+                  ? responseContext.response.body.singleResult.errors?.length
+                  : 0,
+              });
+            },
+          };
+        },
+      },
     ],
-    formatError: (formattedError, error) => {
-      // ซ่อน internal errors
-      if (formattedError.extensions?.code === 'INTERNAL_SERVER_ERROR') {
-        console.error('GraphQL Error:', error);
-        return {
-          message: 'Internal server error',
-          extensions: { code: 'INTERNAL_SERVER_ERROR' }
-        };
-      }
-      return formattedError;
-    },
     introspection: process.env.NODE_ENV !== 'production',
-    includeStacktraceInErrorResponses: process.env.NODE_ENV !== 'production'
+    formatError: (error) => {
+      // ซ่อน internal errors ใน production
+      if (process.env.NODE_ENV === 'production') {
+        if (error.extensions?.code === 'INTERNAL_SERVER_ERROR') {
+          return { message: 'Internal server error', extensions: { code: 'INTERNAL_SERVER_ERROR' } };
+        }
+      }
+      return error;
+    },
   });
 
   await server.start();
 
   app.use(
     '/graphql',
-    cors<cors.CorsRequest>({
-      origin: process.env.ALLOWED_ORIGINS?.split(','),
-      credentials: true
-    }),
-    express.json({ limit: '10mb' }),
+    express.json(),
     expressMiddleware(server, {
       context: async ({ req }) => {
-        const authContext = new AuthContext();
-        const context = await authContext.buildHTTPContext(req);
+        const token = req.headers.authorization?.replace('Bearer ', '');
+        const user = token ? await authenticate(token) : null;
         
         return {
-          ...context,
-          loaders: DataLoaderFactory.create(context.tenantId)
+          user,
+          dataLoaders: createDataLoaders(),
+          pubsub: global.pubsub,
+          req,
         };
-      }
+      },
     })
   );
 
-  await new Promise<void>(resolve => {
-    httpServer.listen({ port: process.env.PORT || 4000 }, resolve);
-  });
+  return { app, httpServer, server };
+}
 
-  console.log(`GraphQL server ready at http://localhost:${process.env.PORT || 4000}/graphql`);
+// Context type
+export interface GraphQLContext {
+  user: any | null;
+  dataLoaders: ReturnType<typeof createDataLoaders>;
+  pubsub: any;
+  req?: express.Request;
 }
 ```
 
@@ -742,1108 +694,1308 @@ export async function createApolloServer(): Promise<void> {
 
 ## 4. Resolvers สำหรับ LINE API
 
-### 4.1 Complete Resolvers
+### 4.1 User Resolver
 
 ```typescript
-// resolvers/index.ts
-import { GraphQLScalarType, Kind } from 'graphql';
-import { UserResolvers } from './UserResolvers';
-import { MessageResolvers } from './MessageResolvers';
-import { ConversationResolvers } from './ConversationResolvers';
-import { BroadcastResolvers } from './BroadcastResolvers';
-import { AnalyticsResolvers } from './AnalyticsResolvers';
-import { RichMenuResolvers } from './RichMenuResolvers';
-import { SubscriptionResolvers } from './SubscriptionResolvers';
-import { MutationResolvers } from './MutationResolvers';
+// graphql/resolvers/user.resolver.ts
+import { GraphQLContext } from '../context';
+import { LineUserService } from '../../services/line-user.service';
+import { AuthenticationError, ForbiddenError } from '../errors';
 
-// Custom Scalar Types
-const DateTimeScalar = new GraphQLScalarType({
-  name: 'DateTime',
-  description: 'ISO 8601 DateTime scalar',
-  serialize(value) {
-    if (value instanceof Date) return value.toISOString();
-    if (typeof value === 'string') return value;
-    throw new Error('DateTime can only serialize Date or string values');
-  },
-  parseValue(value) {
-    if (typeof value === 'string') return new Date(value);
-    throw new Error('DateTime can only parse string values');
-  },
-  parseLiteral(ast) {
-    if (ast.kind === Kind.STRING) return new Date(ast.value);
-    throw new Error('DateTime can only parse string literals');
-  }
-});
-
-const JSONScalar = new GraphQLScalarType({
-  name: 'JSON',
-  description: 'Arbitrary JSON value',
-  serialize: (value) => value,
-  parseValue: (value) => value,
-  parseLiteral: (ast) => {
-    switch (ast.kind) {
-      case Kind.STRING:
-      case Kind.BOOLEAN:
-        return ast.value;
-      case Kind.INT:
-      case Kind.FLOAT:
-        return parseFloat(ast.value);
-      case Kind.OBJECT: {
-        const value: Record<string, any> = {};
-        ast.fields.forEach(field => {
-          value[field.name.value] = JSONScalar.parseLiteral!(field.value, {});
-        });
-        return value;
-      }
-      case Kind.LIST:
-        return ast.values.map(v => JSONScalar.parseLiteral!(v, {}));
-      case Kind.NULL:
-        return null;
-      default:
-        return undefined;
-    }
-  }
-});
+const userService = new LineUserService();
 
 export const resolvers = {
-  DateTime: DateTimeScalar,
-  JSON: JSONScalar,
-  
-  RichMenuAction: {
-    __resolveType(obj: any) {
-      switch (obj.type) {
-        case 'message': return 'MessageAction';
-        case 'uri': return 'URIAction';
-        case 'postback': return 'PostbackAction';
-        case 'datetimepicker': return 'DatetimePickerAction';
-        default: return null;
-      }
-    }
-  },
-
   Query: {
-    user: UserResolvers.getUser,
-    userByLineId: UserResolvers.getUserByLineId,
-    users: UserResolvers.listUsers,
-    message: MessageResolvers.getMessage,
-    messages: MessageResolvers.listMessages,
-    conversation: ConversationResolvers.getConversation,
-    conversations: ConversationResolvers.listConversations,
-    richMenus: RichMenuResolvers.listRichMenus,
-    richMenu: RichMenuResolvers.getRichMenu,
-    defaultRichMenu: RichMenuResolvers.getDefaultRichMenu,
-    broadcasts: BroadcastResolvers.listBroadcasts,
-    broadcast: BroadcastResolvers.getBroadcast,
-    analytics: AnalyticsResolvers.getAnalytics,
-    botSettings: (parent: any, args: any, ctx: any) => ({})
+    me: async (_: any, __: any, context: GraphQLContext) => {
+      if (!context.user) {
+        throw new AuthenticationError('กรุณาเข้าสู่ระบบก่อน');
+      }
+      return userService.getUserByLineId(context.user.lineUserId);
+    },
+
+    user: async (_: any, { id }: { id: string }, context: GraphQLContext) => {
+      // ตรวจสอบ permissions
+      if (!context.user?.isAdmin) {
+        throw new ForbiddenError('ไม่มีสิทธิ์เข้าถึงข้อมูลผู้ใช้อื่น');
+      }
+      return userService.getUserById(id);
+    },
+
+    users: async (
+      _: any,
+      args: { tier?: string; search?: string; limit?: number; offset?: number },
+      context: GraphQLContext
+    ) => {
+      if (!context.user?.isAdmin) {
+        throw new ForbiddenError('ไม่มีสิทธิ์');
+      }
+
+      const [nodes, totalCount] = await Promise.all([
+        userService.getUsers(args),
+        userService.countUsers(args),
+      ]);
+
+      return {
+        nodes,
+        totalCount,
+        pageInfo: {
+          hasNextPage: (args.offset || 0) + nodes.length < totalCount,
+          hasPreviousPage: (args.offset || 0) > 0,
+        },
+      };
+    },
   },
 
-  Mutation: MutationResolvers,
-  Subscription: SubscriptionResolvers,
-  
-  User: {
-    conversations: UserResolvers.getUserConversations,
-    messages: UserResolvers.getUserMessages,
-    analytics: UserResolvers.getUserAnalytics,
-    messageCount: UserResolvers.getUserMessageCount,
-    conversationCount: UserResolvers.getUserConversationCount
-  },
-  
-  Message: {
-    user: (parent: any, args: any, ctx: any) => {
-      return ctx.loaders.userLoader.load(parent.userId);
+  Mutation: {
+    updateProfile: async (
+      _: any,
+      { input }: { input: any },
+      context: GraphQLContext
+    ) => {
+      if (!context.user) {
+        throw new AuthenticationError('กรุณาเข้าสู่ระบบก่อน');
+      }
+      return userService.updateProfile(context.user.id, input);
     },
-    conversation: (parent: any, args: any, ctx: any) => {
-      if (!parent.conversationId) return null;
-      return ctx.loaders.conversationLoader.load(parent.conversationId);
-    }
-  },
-  
-  Conversation: {
-    user: (parent: any, args: any, ctx: any) => {
-      return ctx.loaders.userLoader.load(parent.userId);
+
+    addAddress: async (
+      _: any,
+      { input }: { input: any },
+      context: GraphQLContext
+    ) => {
+      if (!context.user) throw new AuthenticationError();
+      return userService.addAddress(context.user.id, input);
     },
-    messages: ConversationResolvers.getConversationMessages,
-    assignee: (parent: any, args: any, ctx: any) => {
-      if (!parent.assigneeId) return null;
-      return ctx.loaders.staffLoader.load(parent.assigneeId);
-    }
-  }
+  },
+
+  LineUser: {
+    // Field resolvers ใช้ DataLoader ป้องกัน N+1
+    orders: async (
+      parent: any,
+      args: { status?: string; limit?: number; offset?: number },
+      context: GraphQLContext
+    ) => {
+      return context.dataLoaders.userOrdersLoader.load({
+        userId: parent.id,
+        ...args,
+      });
+    },
+
+    activeCoupons: async (parent: any, _: any, context: GraphQLContext) => {
+      return context.dataLoaders.userCouponsLoader.load(parent.id);
+    },
+
+    cart: async (parent: any, _: any, context: GraphQLContext) => {
+      return context.dataLoaders.userCartLoader.load(parent.id);
+    },
+
+    loyaltyPoints: async (parent: any, _: any, context: GraphQLContext) => {
+      return context.dataLoaders.userLoyaltyLoader.load(parent.id);
+    },
+  },
 };
+```
 
-// resolvers/UserResolvers.ts
-import { GraphQLError } from 'graphql';
-import { UserService } from '../services/UserService';
-import { toCursor, fromCursor } from '../utils/cursor';
+### 4.2 Order Resolver
 
-const userService = new UserService();
+```typescript
+// graphql/resolvers/order.resolver.ts
+import { GraphQLContext } from '../context';
+import { OrderService } from '../../services/order.service';
+import { NotFoundError, ForbiddenError, ValidationError } from '../errors';
+import { PubSubEvents } from '../subscriptions/pubsub';
 
-export const UserResolvers = {
-  getUser: async (parent: any, { id }: { id: string }, ctx: any) => {
-    const user = await userService.findById(id, ctx.tenantId);
-    if (!user) throw new GraphQLError('User not found', {
-      extensions: { code: 'NOT_FOUND' }
-    });
-    return user;
+const orderService = new OrderService();
+
+export const resolvers = {
+  Query: {
+    order: async (_: any, { id }: { id: string }, context: GraphQLContext) => {
+      const order = await orderService.getOrderById(id);
+      
+      if (!order) throw new NotFoundError('ไม่พบคำสั่งซื้อ');
+      
+      // ตรวจสอบว่าเป็นเจ้าของ order
+      if (!context.user?.isAdmin && order.userId !== context.user?.id) {
+        throw new ForbiddenError('ไม่มีสิทธิ์ดูคำสั่งซื้อนี้');
+      }
+      
+      return order;
+    },
+
+    orders: async (_: any, args: any, context: GraphQLContext) => {
+      // Admin ดูได้ทุก order, user ดูได้แค่ของตัวเอง
+      const userId = context.user?.isAdmin ? args.userId : context.user?.id;
+      
+      const [nodes, totalCount] = await Promise.all([
+        orderService.getOrders({ ...args, userId }),
+        orderService.countOrders({ ...args, userId }),
+      ]);
+
+      return {
+        nodes,
+        totalCount,
+        pageInfo: {
+          hasNextPage: (args.offset || 0) + nodes.length < totalCount,
+          hasPreviousPage: (args.offset || 0) > 0,
+        },
+      };
+    },
   },
 
-  getUserByLineId: async (parent: any, { lineUserId }: { lineUserId: string }, ctx: any) => {
-    return userService.findByLineUserId(lineUserId, ctx.tenantId);
+  Mutation: {
+    createOrder: async (
+      _: any,
+      { input }: { input: any },
+      context: GraphQLContext
+    ) => {
+      if (!context.user) throw new Error('กรุณาเข้าสู่ระบบ');
+
+      // Validate stock
+      const stockCheck = await orderService.checkStock(input.items);
+      if (!stockCheck.available) {
+        throw new ValidationError(
+          `สินค้า ${stockCheck.unavailableItems.join(', ')} หมดสต๊อก`
+        );
+      }
+
+      const order = await orderService.createOrder({
+        ...input,
+        userId: context.user.id,
+        lineUserId: context.user.lineUserId,
+      });
+
+      // Publish subscription event
+      await context.pubsub.publish(PubSubEvents.NEW_ORDER, {
+        newOrder: { order, user: context.user },
+      });
+
+      // Generate payment URL
+      let paymentUrl = null;
+      let linePayPaymentUrl = null;
+
+      if (input.paymentMethod === 'LINE_PAY') {
+        linePayPaymentUrl = await orderService.initiateLinePayPayment(order.id);
+      } else if (input.paymentMethod === 'CREDIT_CARD') {
+        paymentUrl = await orderService.initiateCardPayment(order.id);
+      }
+
+      return { order, paymentUrl, linePayPaymentUrl };
+    },
+
+    cancelOrder: async (
+      _: any,
+      { id, reason }: { id: string; reason?: string },
+      context: GraphQLContext
+    ) => {
+      const order = await orderService.getOrderById(id);
+      if (!order) throw new NotFoundError('ไม่พบคำสั่งซื้อ');
+
+      if (order.userId !== context.user?.id && !context.user?.isAdmin) {
+        throw new ForbiddenError('ไม่มีสิทธิ์ยกเลิกคำสั่งซื้อนี้');
+      }
+
+      const cancelledOrder = await orderService.cancelOrder(id, reason);
+      
+      // Publish event
+      await context.pubsub.publish(PubSubEvents.ORDER_STATUS_CHANGED, {
+        orderStatusChanged: {
+          order: cancelledOrder,
+          previousStatus: order.status,
+          newStatus: 'CANCELLED',
+          changedAt: new Date(),
+        },
+      });
+
+      return {
+        order: cancelledOrder,
+        refundAmount: order.totalAmount,
+      };
+    },
   },
 
-  listUsers: async (parent: any, args: any, ctx: any) => {
-    const { first = 20, after, status, search, tags } = args;
-    const cursor = after ? fromCursor(after) : undefined;
-    
-    const result = await userService.findMany(ctx.tenantId, {
-      limit: first + 1,
-      cursor,
-      status,
-      search,
-      tags
-    });
+  Order: {
+    user: async (parent: any, _: any, context: GraphQLContext) => {
+      return context.dataLoaders.userLoader.load(parent.userId);
+    },
 
-    const hasNextPage = result.items.length > first;
-    const items = hasNextPage ? result.items.slice(0, first) : result.items;
+    items: async (parent: any, _: any, context: GraphQLContext) => {
+      return context.dataLoaders.orderItemsLoader.load(parent.id);
+    },
 
-    return {
-      edges: items.map(user => ({
-        node: user,
-        cursor: toCursor(user.id)
-      })),
-      pageInfo: {
-        hasNextPage,
-        hasPreviousPage: !!cursor,
-        startCursor: items[0] ? toCursor(items[0].id) : null,
-        endCursor: items[items.length - 1] ? toCursor(items[items.length - 1].id) : null
-      },
-      totalCount: result.total
-    };
+    payment: async (parent: any, _: any, context: GraphQLContext) => {
+      return context.dataLoaders.orderPaymentLoader.load(parent.id);
+    },
+
+    shippingAddress: async (parent: any, _: any, context: GraphQLContext) => {
+      if (!parent.shippingAddressId) return null;
+      return context.dataLoaders.addressLoader.load(parent.shippingAddressId);
+    },
+
+    canCancel: (parent: any) => {
+      return ['PENDING', 'CONFIRMED'].includes(parent.status);
+    },
+
+    canReorder: (parent: any) => {
+      return ['DELIVERED', 'CANCELLED'].includes(parent.status);
+    },
   },
-
-  getUserConversations: async (parent: any, args: any, ctx: any) => {
-    const { first = 10, after, status } = args;
-    const cursor = after ? fromCursor(after) : undefined;
-
-    const result = await userService.getUserConversations(
-      parent.id,
-      ctx.tenantId,
-      { limit: first + 1, cursor, status }
-    );
-
-    const hasNextPage = result.items.length > first;
-    const items = hasNextPage ? result.items.slice(0, first) : result.items;
-
-    return {
-      edges: items.map(conv => ({ node: conv, cursor: toCursor(conv.id) })),
-      pageInfo: {
-        hasNextPage,
-        hasPreviousPage: !!cursor,
-        startCursor: items[0] ? toCursor(items[0].id) : null,
-        endCursor: items[items.length - 1] ? toCursor(items[items.length - 1].id) : null
-      },
-      totalCount: result.total
-    };
-  },
-
-  getUserMessages: async (parent: any, args: any, ctx: any) => {
-    return ctx.loaders.userMessagesLoader.load({
-      userId: parent.id,
-      args
-    });
-  },
-
-  getUserAnalytics: async (parent: any, args: any, ctx: any) => {
-    return ctx.loaders.userAnalyticsLoader.load(parent.id);
-  },
-
-  getUserMessageCount: async (parent: any, args: any, ctx: any) => {
-    return ctx.loaders.userMessageCountLoader.load(parent.id);
-  },
-
-  getUserConversationCount: async (parent: any, args: any, ctx: any) => {
-    return ctx.loaders.userConversationCountLoader.load(parent.id);
-  }
 };
 ```
 
 ---
 
-## 5. DataLoader สำหรับ Batching
+## 5. DataLoader ป้องกัน N+1
 
-### 5.1 DataLoader Factory
+### 5.1 DataLoader Implementation
 
 ```typescript
-// dataloader/DataLoaderFactory.ts
+// graphql/dataloaders/index.ts
 import DataLoader from 'dataloader';
-import { UserRepository } from '../repositories/UserRepository';
-import { MessageRepository } from '../repositories/MessageRepository';
-import { ConversationRepository } from '../repositories/ConversationRepository';
+import { Pool } from 'pg';
 
-export class DataLoaderFactory {
-  static create(tenantId: string) {
-    const userRepo = new UserRepository(tenantId);
-    const messageRepo = new MessageRepository(tenantId);
-    const conversationRepo = new ConversationRepository(tenantId);
+export function createDataLoaders() {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-    // User DataLoader - batch load users by ID
-    const userLoader = new DataLoader<string, any>(
-      async (ids) => {
-        const users = await userRepo.findByIds([...ids]);
-        const userMap = new Map(users.map(u => [u.id, u]));
-        return ids.map(id => userMap.get(id) || null);
-      },
-      {
-        cache: true,
-        maxBatchSize: 100,
-        batchScheduleFn: (callback) => setTimeout(callback, 10)
-      }
-    );
-
-    // Message DataLoader
-    const messageLoader = new DataLoader<string, any>(
-      async (ids) => {
-        const messages = await messageRepo.findByIds([...ids]);
-        const messageMap = new Map(messages.map(m => [m.id, m]));
-        return ids.map(id => messageMap.get(id) || null);
-      }
-    );
-
-    // Conversation DataLoader
-    const conversationLoader = new DataLoader<string, any>(
-      async (ids) => {
-        const conversations = await conversationRepo.findByIds([...ids]);
-        const convMap = new Map(conversations.map(c => [c.id, c]));
-        return ids.map(id => convMap.get(id) || null);
-      }
-    );
-
-    // User Messages DataLoader (for pagination)
-    const userMessagesLoader = new DataLoader<{ userId: string; args: any }, any>(
-      async (keys) => {
-        return Promise.all(
-          keys.map(({ userId, args }) =>
-            messageRepo.findByUserId(userId, args)
-          )
-        );
-      },
-      { cache: false }
-    );
-
-    // User Analytics DataLoader
-    const userAnalyticsLoader = new DataLoader<string, any>(
-      async (userIds) => {
-        const analytics = await messageRepo.getUserAnalyticsBatch([...userIds]);
-        const analyticsMap = new Map(analytics.map(a => [a.userId, a]));
-        return userIds.map(id => analyticsMap.get(id) || {
-          totalMessages: 0,
-          averageResponseTime: null,
-          mostUsedMessageType: null,
-          activityByHour: [],
-          sentimentScore: null
-        });
-      }
-    );
-
-    // User Message Count DataLoader
-    const userMessageCountLoader = new DataLoader<string, number>(
-      async (userIds) => {
-        const counts = await messageRepo.getMessageCountsBatch([...userIds]);
-        const countMap = new Map(counts.map(c => [c.userId, c.count]));
-        return userIds.map(id => countMap.get(id) || 0);
-      }
-    );
-
-    // User Conversation Count DataLoader
-    const userConversationCountLoader = new DataLoader<string, number>(
-      async (userIds) => {
-        const counts = await conversationRepo.getConversationCountsBatch([...userIds]);
-        const countMap = new Map(counts.map(c => [c.userId, c.count]));
-        return userIds.map(id => countMap.get(id) || 0);
-      }
-    );
-
-    // Staff DataLoader
-    const staffLoader = new DataLoader<string, any>(
-      async (ids) => {
-        // Load staff from database
-        return ids.map(() => null); // Placeholder
-      }
-    );
-
-    return {
-      userLoader,
-      messageLoader,
-      conversationLoader,
-      userMessagesLoader,
-      userAnalyticsLoader,
-      userMessageCountLoader,
-      userConversationCountLoader,
-      staffLoader
-    };
-  }
-}
-```
-
----
-
-## 6. Subscriptions สำหรับ Real-time
-
-### 6.1 PubSub และ Subscription Resolvers
-
-```typescript
-// subscriptions/PubSubService.ts
-import { RedisPubSub } from 'graphql-redis-subscriptions';
-import { Redis } from 'ioredis';
-
-let pubsubInstance: RedisPubSub | null = null;
-
-export function getPubSub(): RedisPubSub {
-  if (!pubsubInstance) {
-    const publisher = new Redis(process.env.REDIS_URL!);
-    const subscriber = new Redis(process.env.REDIS_URL!);
-
-    pubsubInstance = new RedisPubSub({
-      publisher,
-      subscriber,
-      reviver: (key, value) => {
-        if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
-          return new Date(value);
-        }
-        return value;
-      }
-    });
-  }
-  return pubsubInstance;
-}
-
-// Events
-export const EVENTS = {
-  MESSAGE_RECEIVED: 'MESSAGE_RECEIVED',
-  MESSAGE_SENT: 'MESSAGE_SENT',
-  USER_FOLLOWED: 'USER_FOLLOWED',
-  USER_UNFOLLOWED: 'USER_UNFOLLOWED',
-  BROADCAST_PROGRESS: 'BROADCAST_PROGRESS',
-  CONVERSATION_CREATED: 'CONVERSATION_CREATED',
-  CONVERSATION_UPDATED: 'CONVERSATION_UPDATED'
-};
-
-// resolvers/SubscriptionResolvers.ts
-import { withFilter } from 'graphql-subscriptions';
-import { getPubSub, EVENTS } from '../subscriptions/PubSubService';
-
-export const SubscriptionResolvers = {
-  messageReceived: {
-    subscribe: withFilter(
-      () => getPubSub().asyncIterator(EVENTS.MESSAGE_RECEIVED),
-      (payload, variables, context) => {
-        // กรอง event ตาม tenantId และ userId
-        if (payload.messageReceived.tenantId !== context.tenantId) return false;
-        if (variables.userId && payload.messageReceived.userId !== variables.userId) return false;
-        return true;
-      }
-    ),
-    resolve: (payload: any) => payload.messageReceived
-  },
-
-  messageSent: {
-    subscribe: withFilter(
-      () => getPubSub().asyncIterator(EVENTS.MESSAGE_SENT),
-      (payload, variables, context) => {
-        if (payload.messageSent.tenantId !== context.tenantId) return false;
-        if (variables.userId && payload.messageSent.userId !== variables.userId) return false;
-        return true;
-      }
-    ),
-    resolve: (payload: any) => payload.messageSent
-  },
-
-  broadcastProgress: {
-    subscribe: withFilter(
-      () => getPubSub().asyncIterator(EVENTS.BROADCAST_PROGRESS),
-      (payload, variables, context) => {
-        return (
-          payload.broadcastProgress.tenantId === context.tenantId &&
-          payload.broadcastProgress.broadcastId === variables.broadcastId
-        );
-      }
-    ),
-    resolve: (payload: any) => payload.broadcastProgress
-  },
-
-  userFollowed: {
-    subscribe: withFilter(
-      () => getPubSub().asyncIterator(EVENTS.USER_FOLLOWED),
-      (payload, variables, context) => {
-        return payload.userFollowed.tenantId === context.tenantId;
-      }
-    ),
-    resolve: (payload: any) => payload.userFollowed
-  },
-
-  userUnfollowed: {
-    subscribe: withFilter(
-      () => getPubSub().asyncIterator(EVENTS.USER_UNFOLLOWED),
-      (payload, variables, context) => {
-        return payload.userUnfollowed.tenantId === context.tenantId;
-      }
-    ),
-    resolve: (payload: any) => payload.userUnfollowed
-  },
-
-  conversationCreated: {
-    subscribe: withFilter(
-      () => getPubSub().asyncIterator(EVENTS.CONVERSATION_CREATED),
-      (payload, variables, context) => {
-        return payload.conversationCreated.tenantId === context.tenantId;
-      }
-    ),
-    resolve: (payload: any) => payload.conversationCreated
-  },
-
-  conversationUpdated: {
-    subscribe: withFilter(
-      () => getPubSub().asyncIterator(EVENTS.CONVERSATION_UPDATED),
-      (payload, variables, context) => {
-        if (payload.conversationUpdated.tenantId !== context.tenantId) return false;
-        if (variables.id && payload.conversationUpdated.id !== variables.id) return false;
-        return true;
-      }
-    ),
-    resolve: (payload: any) => payload.conversationUpdated
-  }
-};
-
-// เมื่อรับ webhook event จาก LINE - publish ไป subscribers
-export async function publishLINEEvent(event: any, tenantId: string): Promise<void> {
-  const pubsub = getPubSub();
-
-  switch (event.type) {
-    case 'message':
-      await pubsub.publish(EVENTS.MESSAGE_RECEIVED, {
-        messageReceived: {
-          ...transformToGraphQLMessage(event),
-          tenantId
-        }
-      });
-      break;
-    
-    case 'follow':
-      await pubsub.publish(EVENTS.USER_FOLLOWED, {
-        userFollowed: {
-          lineUserId: event.source.userId,
-          tenantId
-        }
-      });
-      break;
-    
-    case 'unfollow':
-      await pubsub.publish(EVENTS.USER_UNFOLLOWED, {
-        userUnfollowed: {
-          lineUserId: event.source.userId,
-          tenantId
-        }
-      });
-      break;
-  }
-}
-
-function transformToGraphQLMessage(event: any) {
   return {
-    id: event.message.id,
-    messageId: event.message.id,
-    type: event.message.type.toUpperCase(),
-    content: event.message,
-    direction: 'INBOUND',
-    userId: event.source.userId,
-    sentAt: new Date(event.timestamp)
+    // User loaders
+    userLoader: createUserLoader(pool),
+    userOrdersLoader: createUserOrdersLoader(pool),
+    userCouponsLoader: createUserCouponsLoader(pool),
+    userCartLoader: createUserCartLoader(pool),
+    userLoyaltyLoader: createUserLoyaltyLoader(pool),
+
+    // Order loaders
+    orderItemsLoader: createOrderItemsLoader(pool),
+    orderPaymentLoader: createOrderPaymentLoader(pool),
+
+    // Product loaders
+    productLoader: createProductLoader(pool),
+    productCategoryLoader: createProductCategoryLoader(pool),
+    productImagesLoader: createProductImagesLoader(pool),
+
+    // Address loaders
+    addressLoader: createAddressLoader(pool),
   };
 }
+
+function createUserLoader(pool: Pool) {
+  return new DataLoader<string, any>(async (userIds) => {
+    const result = await pool.query(
+      `SELECT * FROM users WHERE id = ANY($1)`,
+      [userIds]
+    );
+
+    // สร้าง map สำหรับ lookup O(1)
+    const userMap = new Map(result.rows.map(u => [u.id, u]));
+    return userIds.map(id => userMap.get(id) || null);
+  });
+}
+
+function createUserOrdersLoader(pool: Pool) {
+  // Key เป็น object ต้องใช้ cacheKeyFn
+  return new DataLoader<{ userId: string; status?: string; limit?: number }, any[]>(
+    async (keys) => {
+      const userIds = [...new Set(keys.map(k => k.userId))];
+      
+      const result = await pool.query(
+        `SELECT * FROM orders 
+         WHERE user_id = ANY($1) 
+         ORDER BY created_at DESC`,
+        [userIds]
+      );
+
+      return keys.map(key => {
+        let orders = result.rows.filter(o => o.user_id === key.userId);
+        
+        if (key.status) {
+          orders = orders.filter(o => o.status === key.status);
+        }
+        
+        if (key.limit) {
+          orders = orders.slice(0, key.limit);
+        }
+        
+        return orders;
+      });
+    },
+    {
+      cacheKeyFn: (key) => `${key.userId}:${key.status || 'all'}:${key.limit || 10}`,
+    }
+  );
+}
+
+function createOrderItemsLoader(pool: Pool) {
+  return new DataLoader<string, any[]>(async (orderIds) => {
+    const result = await pool.query(
+      `SELECT 
+        oi.*,
+        p.name as product_name,
+        p.price as product_price,
+        p.primary_image_url
+       FROM order_items oi
+       JOIN products p ON oi.product_id = p.id
+       WHERE oi.order_id = ANY($1)`,
+      [orderIds]
+    );
+
+    const itemsByOrder = new Map<string, any[]>();
+    
+    result.rows.forEach(item => {
+      const existing = itemsByOrder.get(item.order_id) || [];
+      existing.push(item);
+      itemsByOrder.set(item.order_id, existing);
+    });
+
+    return orderIds.map(id => itemsByOrder.get(id) || []);
+  });
+}
+
+function createProductLoader(pool: Pool) {
+  return new DataLoader<string, any>(async (productIds) => {
+    const result = await pool.query(
+      `SELECT * FROM products WHERE id = ANY($1)`,
+      [productIds]
+    );
+
+    const productMap = new Map(result.rows.map(p => [p.id, p]));
+    return productIds.map(id => productMap.get(id) || null);
+  });
+}
+
+function createProductImagesLoader(pool: Pool) {
+  return new DataLoader<string, any[]>(async (productIds) => {
+    const result = await pool.query(
+      `SELECT * FROM product_images 
+       WHERE product_id = ANY($1) 
+       ORDER BY sort_order`,
+      [productIds]
+    );
+
+    const imagesByProduct = new Map<string, any[]>();
+    
+    result.rows.forEach(image => {
+      const existing = imagesByProduct.get(image.product_id) || [];
+      existing.push(image);
+      imagesByProduct.set(image.product_id, existing);
+    });
+
+    return productIds.map(id => imagesByProduct.get(id) || []);
+  });
+}
+
+function createUserCouponsLoader(pool: Pool) {
+  return new DataLoader<string, any[]>(async (userIds) => {
+    const result = await pool.query(
+      `SELECT uc.*, c.* 
+       FROM user_coupons uc
+       JOIN coupons c ON uc.coupon_id = c.id
+       WHERE uc.user_id = ANY($1)
+       AND c.expires_at > NOW()
+       AND uc.used_at IS NULL`,
+      [userIds]
+    );
+
+    const couponsByUser = new Map<string, any[]>();
+    
+    result.rows.forEach(coupon => {
+      const existing = couponsByUser.get(coupon.user_id) || [];
+      existing.push(coupon);
+      couponsByUser.set(coupon.user_id, existing);
+    });
+
+    return userIds.map(id => couponsByUser.get(id) || []);
+  });
+}
+
+function createUserCartLoader(pool: Pool) {
+  return new DataLoader<string, any>(async (userIds) => {
+    const result = await pool.query(
+      `SELECT c.*, 
+        json_agg(
+          json_build_object(
+            'id', ci.id,
+            'productId', ci.product_id,
+            'quantity', ci.quantity
+          )
+        ) as items
+       FROM carts c
+       LEFT JOIN cart_items ci ON c.id = ci.cart_id
+       WHERE c.user_id = ANY($1)
+       GROUP BY c.id`,
+      [userIds]
+    );
+
+    const cartMap = new Map(result.rows.map(c => [c.user_id, c]));
+    return userIds.map(id => cartMap.get(id) || null);
+  });
+}
+
+function createUserLoyaltyLoader(pool: Pool) {
+  return new DataLoader<string, number>(async (userIds) => {
+    const result = await pool.query(
+      `SELECT user_id, SUM(points) as total_points
+       FROM loyalty_transactions
+       WHERE user_id = ANY($1)
+       GROUP BY user_id`,
+      [userIds]
+    );
+
+    const pointsMap = new Map(result.rows.map(r => [r.user_id, parseInt(r.total_points)]));
+    return userIds.map(id => pointsMap.get(id) || 0);
+  });
+}
+
+function createOrderPaymentLoader(pool: Pool) {
+  return new DataLoader<string, any>(async (orderIds) => {
+    const result = await pool.query(
+      `SELECT * FROM payments WHERE order_id = ANY($1)`,
+      [orderIds]
+    );
+
+    const paymentMap = new Map(result.rows.map(p => [p.order_id, p]));
+    return orderIds.map(id => paymentMap.get(id) || null);
+  });
+}
+
+function createAddressLoader(pool: Pool) {
+  return new DataLoader<string, any>(async (addressIds) => {
+    const result = await pool.query(
+      `SELECT * FROM addresses WHERE id = ANY($1)`,
+      [addressIds]
+    );
+
+    const addressMap = new Map(result.rows.map(a => [a.id, a]));
+    return addressIds.map(id => addressMap.get(id) || null);
+  });
+}
+
+function createProductCategoryLoader(pool: Pool) {
+  return new DataLoader<string, any>(async (categoryIds) => {
+    const result = await pool.query(
+      `SELECT * FROM categories WHERE id = ANY($1)`,
+      [categoryIds]
+    );
+
+    const categoryMap = new Map(result.rows.map(c => [c.id, c]));
+    return categoryIds.map(id => categoryMap.get(id) || null);
+  });
+}
 ```
 
 ---
 
-## 7. GraphQL กับ LIFF
+## 6. Subscriptions สำหรับ Real-time Updates
 
-### 7.1 LIFF + GraphQL Client
+### 6.1 PubSub Setup
 
 ```typescript
-// liff/LIFFGraphQLClient.ts
-import { ApolloClient, InMemoryCache, HttpLink, split, from } from '@apollo/client';
+// graphql/subscriptions/pubsub.ts
+import { PubSub } from 'graphql-subscriptions';
+import { RedisPubSub } from 'graphql-redis-subscriptions';
+import Redis from 'ioredis';
+
+export enum PubSubEvents {
+  ORDER_STATUS_CHANGED = 'ORDER_STATUS_CHANGED',
+  NEW_ORDER = 'NEW_ORDER',
+  NEW_MESSAGE = 'NEW_MESSAGE',
+  REALTIME_STATS = 'REALTIME_STATS',
+  STOCK_ALERT = 'STOCK_ALERT',
+}
+
+// ใช้ Redis PubSub สำหรับ multi-instance setup
+function createRedisPubSub(): RedisPubSub {
+  const options = {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '6379'),
+    password: process.env.REDIS_PASSWORD,
+    retryStrategy: (times: number) => Math.min(times * 50, 2000),
+  };
+
+  return new RedisPubSub({
+    publisher: new Redis(options),
+    subscriber: new Redis(options),
+  });
+}
+
+export const pubsub = process.env.NODE_ENV === 'development'
+  ? new PubSub()
+  : createRedisPubSub();
+
+// ประกาศ global
+declare global {
+  var pubsub: typeof pubsub;
+}
+global.pubsub = pubsub;
+```
+
+### 6.2 Subscription Resolvers
+
+```typescript
+// graphql/resolvers/subscription.resolver.ts
+import { withFilter } from 'graphql-subscriptions';
+import { PubSubEvents } from '../subscriptions/pubsub';
+import { GraphQLContext } from '../context';
+
+export const resolvers = {
+  Subscription: {
+    orderStatusChanged: {
+      subscribe: withFilter(
+        (_: any, __: any, context: GraphQLContext) =>
+          context.pubsub.asyncIterator(PubSubEvents.ORDER_STATUS_CHANGED),
+        (payload: any, variables: any, context: GraphQLContext) => {
+          // Filter: ส่งเฉพาะ order ที่ user เป็นเจ้าของ
+          const order = payload.orderStatusChanged.order;
+          return (
+            order.id === variables.orderId ||
+            (context.user?.isAdmin === true)
+          );
+        }
+      ),
+    },
+
+    newOrder: {
+      subscribe: withFilter(
+        (_: any, __: any, context: GraphQLContext) =>
+          context.pubsub.asyncIterator(PubSubEvents.NEW_ORDER),
+        (payload: any, variables: any, context: GraphQLContext) => {
+          // Admin เห็นทุก order, user เห็นเฉพาะของตัวเอง
+          if (context.user?.isAdmin) return true;
+          
+          if (variables.userId) {
+            return payload.newOrder.order.userId === variables.userId;
+          }
+          
+          return payload.newOrder.order.userId === context.user?.id;
+        }
+      ),
+    },
+
+    newMessage: {
+      subscribe: withFilter(
+        (_: any, __: any, context: GraphQLContext) =>
+          context.pubsub.asyncIterator(PubSubEvents.NEW_MESSAGE),
+        (payload: any, variables: any) =>
+          payload.newMessage.lineUserId === variables.lineUserId
+      ),
+    },
+
+    realtimeStats: {
+      subscribe: (_: any, __: any, context: GraphQLContext) => {
+        if (!context.user?.isAdmin) {
+          throw new Error('ต้องเป็น Admin เท่านั้น');
+        }
+        return context.pubsub.asyncIterator(PubSubEvents.REALTIME_STATS);
+      },
+    },
+
+    stockAlert: {
+      subscribe: withFilter(
+        (_: any, __: any, context: GraphQLContext) =>
+          context.pubsub.asyncIterator(PubSubEvents.STOCK_ALERT),
+        (payload: any, variables: any) =>
+          payload.stockAlert.product.id === variables.productId
+      ),
+    },
+  },
+};
+```
+
+---
+
+## 7. GraphQL กับ LIFF Frontend
+
+### 7.1 Apollo Client ใน LIFF
+
+```typescript
+// liff/apollo-client.ts
+import { ApolloClient, InMemoryCache, split, HttpLink, from } from '@apollo/client';
 import { GraphQLWsLink } from '@apollo/client/link/subscriptions';
 import { createClient } from 'graphql-ws';
 import { getMainDefinition } from '@apollo/client/utilities';
 import { onError } from '@apollo/client/link/error';
-import { RetryLink } from '@apollo/client/link/retry';
 import { setContext } from '@apollo/client/link/context';
+import liff from '@line/liff';
 
-export async function createLIFFApolloClient(): Promise<ApolloClient<any>> {
-  // Get LINE access token
-  if (!liff.isLoggedIn()) {
-    liff.login({ redirectUri: window.location.href });
-    throw new Error('Not logged in');
-  }
-  const lineToken = liff.getAccessToken();
-
-  // Exchange for our JWT
-  const authResponse = await fetch('/api/auth/line-token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ lineToken })
-  });
-  const { jwt, tenantId } = await authResponse.json();
-
-  // Auth Link
-  const authLink = setContext((_, { headers }) => ({
+// Auth link - เพิ่ม LINE access token
+const authLink = setContext(async (_, { headers }) => {
+  const accessToken = liff.getAccessToken();
+  
+  return {
     headers: {
       ...headers,
-      authorization: jwt ? `Bearer ${jwt}` : '',
-      'x-tenant-id': tenantId
-    }
-  }));
-
-  // HTTP Link
-  const httpLink = new HttpLink({
-    uri: `${process.env.REACT_APP_API_URL}/graphql`
-  });
-
-  // WebSocket Link สำหรับ Subscriptions
-  const wsLink = new GraphQLWsLink(createClient({
-    url: `${process.env.REACT_APP_WS_URL}/graphql`,
-    connectionParams: {
-      authorization: `Bearer ${jwt}`,
-      'x-tenant-id': tenantId
-    }
-  }));
-
-  // Error Link
-  const errorLink = onError(({ graphQLErrors, networkError }) => {
-    if (graphQLErrors) {
-      graphQLErrors.forEach(({ message, locations, path, extensions }) => {
-        console.error(`GraphQL Error: ${message}`, { locations, path });
-        
-        if (extensions?.code === 'UNAUTHENTICATED') {
-          // Refresh token หรือ logout
-          liff.logout();
-        }
-      });
-    }
-    if (networkError) {
-      console.error('Network Error:', networkError);
-    }
-  });
-
-  // Retry Link
-  const retryLink = new RetryLink({
-    delay: {
-      initial: 300,
-      max: Infinity,
-      jitter: true
+      authorization: accessToken ? `Bearer ${accessToken}` : '',
     },
-    attempts: {
-      max: 5,
-      retryIf: (error, _operation) => {
-        return !!error && !error.message.includes('UNAUTHENTICATED');
+  };
+});
+
+// HTTP Link สำหรับ queries และ mutations
+const httpLink = new HttpLink({
+  uri: process.env.REACT_APP_GRAPHQL_URL || 'https://api.yourapp.com/graphql',
+});
+
+// WebSocket Link สำหรับ subscriptions
+const wsLink = new GraphQLWsLink(
+  createClient({
+    url: process.env.REACT_APP_GRAPHQL_WS_URL || 'wss://api.yourapp.com/graphql',
+    connectionParams: async () => {
+      const accessToken = liff.getAccessToken();
+      return {
+        Authorization: accessToken ? `Bearer ${accessToken}` : '',
+      };
+    },
+    retryAttempts: 5,
+  })
+);
+
+// Error handling link
+const errorLink = onError(({ graphQLErrors, networkError }) => {
+  if (graphQLErrors) {
+    graphQLErrors.forEach(({ message, locations, path, extensions }) => {
+      console.error(`GraphQL Error: ${message}`, { locations, path });
+      
+      if (extensions?.code === 'UNAUTHENTICATED') {
+        // Redirect to LINE login
+        liff.login();
       }
-    }
-  });
+    });
+  }
 
-  // Split HTTP and WebSocket
-  const splitLink = split(
-    ({ query }) => {
-      const definition = getMainDefinition(query);
-      return (
-        definition.kind === 'OperationDefinition' &&
-        definition.operation === 'subscription'
-      );
-    },
-    wsLink,
-    from([errorLink, retryLink, authLink, httpLink])
-  );
+  if (networkError) {
+    console.error('Network Error:', networkError);
+  }
+});
 
-  return new ApolloClient({
-    link: splitLink,
-    cache: new InMemoryCache({
-      typePolicies: {
-        Query: {
-          fields: {
-            users: {
-              keyArgs: ['status', 'search', 'tags'],
-              merge(existing, incoming) {
-                const edges = [
-                  ...(existing?.edges || []),
-                  ...(incoming?.edges || [])
-                ];
-                return { ...incoming, edges };
-              }
+// Split: ใช้ WebSocket สำหรับ subscriptions, HTTP สำหรับ queries/mutations
+const splitLink = split(
+  ({ query }) => {
+    const definition = getMainDefinition(query);
+    return (
+      definition.kind === 'OperationDefinition' &&
+      definition.operation === 'subscription'
+    );
+  },
+  wsLink,
+  from([authLink, errorLink, httpLink])
+);
+
+export const apolloClient = new ApolloClient({
+  link: splitLink,
+  cache: new InMemoryCache({
+    typePolicies: {
+      Query: {
+        fields: {
+          orders: {
+            // Cache pagination
+            keyArgs: ['userId', 'status'],
+            merge(existing, incoming) {
+              return {
+                ...incoming,
+                nodes: [...(existing?.nodes || []), ...incoming.nodes],
+              };
             },
-            messages: {
-              keyArgs: ['userId', 'types'],
-              merge(existing, incoming) {
-                const edges = [
-                  ...(incoming?.edges || []),
-                  ...(existing?.edges || [])
-                ];
-                return { ...incoming, edges };
-              }
-            }
-          }
+          },
         },
-        User: {
-          fields: {
-            conversations: {
-              keyArgs: ['status'],
-              merge(existing, incoming) {
-                return {
-                  ...incoming,
-                  edges: [
-                    ...(existing?.edges || []),
-                    ...(incoming?.edges || [])
-                  ]
-                };
-              }
+      },
+      Order: {
+        fields: {
+          canCancel: {
+            read(_, { readField }) {
+              const status = readField('status');
+              return ['PENDING', 'CONFIRMED'].includes(status as string);
+            },
+          },
+        },
+      },
+    },
+  }),
+  defaultOptions: {
+    watchQuery: {
+      fetchPolicy: 'cache-and-network',
+    },
+  },
+});
+```
+
+### 7.2 LIFF Components ด้วย Apollo
+
+```tsx
+// liff/components/OrderHistory.tsx
+import React, { useState } from 'react';
+import { useQuery, useSubscription, gql } from '@apollo/client';
+
+const GET_MY_ORDERS = gql`
+  query GetMyOrders($status: OrderStatus, $limit: Int, $offset: Int) {
+    orders(status: $status, limit: $limit, offset: $offset) {
+      nodes {
+        id
+        orderNumber
+        status
+        totalAmount
+        createdAt
+        items {
+          product {
+            name
+            primaryImage {
+              url
             }
           }
+          quantity
+          totalPrice
         }
+        canCancel
       }
-    }),
-    defaultOptions: {
-      watchQuery: {
-        fetchPolicy: 'cache-and-network',
-        errorPolicy: 'partial'
-      },
-      query: {
-        fetchPolicy: 'cache-first',
-        errorPolicy: 'all'
+      totalCount
+      pageInfo {
+        hasNextPage
       }
     }
+  }
+`;
+
+const ORDER_STATUS_SUBSCRIPTION = gql`
+  subscription OnOrderStatusChanged($orderId: ID!) {
+    orderStatusChanged(orderId: $orderId) {
+      order {
+        id
+        status
+      }
+      previousStatus
+      newStatus
+      changedAt
+    }
+  }
+`;
+
+const CANCEL_ORDER = gql`
+  mutation CancelOrder($id: ID!, $reason: String) {
+    cancelOrder(id: $id, reason: $reason) {
+      order {
+        id
+        status
+      }
+      refundAmount
+    }
+  }
+`;
+
+export const OrderHistory: React.FC = () => {
+  const [selectedStatus, setSelectedStatus] = useState<string | undefined>();
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 10;
+
+  const { data, loading, error, fetchMore } = useQuery(GET_MY_ORDERS, {
+    variables: {
+      status: selectedStatus,
+      limit: PAGE_SIZE,
+      offset: page * PAGE_SIZE,
+    },
   });
+
+  if (loading) return <div className="loading">กำลังโหลด...</div>;
+  if (error) return <div className="error">เกิดข้อผิดพลาด: {error.message}</div>;
+
+  const orders = data?.orders.nodes || [];
+  const hasNextPage = data?.orders.pageInfo.hasNextPage;
+
+  return (
+    <div className="order-history">
+      <h2>ประวัติการสั่งซื้อ</h2>
+
+      {/* Status Filter */}
+      <div className="status-filter">
+        {['', 'PENDING', 'PAID', 'SHIPPED', 'DELIVERED'].map(status => (
+          <button
+            key={status}
+            className={selectedStatus === status || (!selectedStatus && !status) ? 'active' : ''}
+            onClick={() => {
+              setSelectedStatus(status || undefined);
+              setPage(0);
+            }}
+          >
+            {getStatusLabel(status)}
+          </button>
+        ))}
+      </div>
+
+      {/* Order List */}
+      {orders.map((order: any) => (
+        <OrderCard key={order.id} order={order} />
+      ))}
+
+      {/* Load More */}
+      {hasNextPage && (
+        <button
+          onClick={() => {
+            fetchMore({
+              variables: { offset: orders.length },
+              updateQuery: (prev, { fetchMoreResult }) => {
+                if (!fetchMoreResult) return prev;
+                return {
+                  orders: {
+                    ...fetchMoreResult.orders,
+                    nodes: [
+                      ...prev.orders.nodes,
+                      ...fetchMoreResult.orders.nodes,
+                    ],
+                  },
+                };
+              },
+            });
+          }}
+        >
+          โหลดเพิ่มเติม
+        </button>
+      )}
+    </div>
+  );
+};
+
+// Order Card ที่มี real-time status update
+const OrderCard: React.FC<{ order: any }> = ({ order }) => {
+  const { data: subscriptionData } = useSubscription(ORDER_STATUS_SUBSCRIPTION, {
+    variables: { orderId: order.id },
+    skip: ['DELIVERED', 'CANCELLED', 'REFUNDED'].includes(order.status),
+  });
+
+  const currentStatus = subscriptionData?.orderStatusChanged.newStatus || order.status;
+
+  return (
+    <div className="order-card">
+      <div className="order-header">
+        <span className="order-number">#{order.orderNumber}</span>
+        <span className={`status status-${currentStatus.toLowerCase()}`}>
+          {getStatusLabel(currentStatus)}
+        </span>
+      </div>
+
+      <div className="order-items">
+        {order.items.slice(0, 2).map((item: any) => (
+          <div key={item.product.name} className="order-item">
+            <img
+              src={item.product.primaryImage?.url}
+              alt={item.product.name}
+              className="product-image"
+            />
+            <div>
+              <p>{item.product.name}</p>
+              <p>x{item.quantity}</p>
+            </div>
+            <p>฿{item.totalPrice.toLocaleString()}</p>
+          </div>
+        ))}
+        {order.items.length > 2 && (
+          <p>+{order.items.length - 2} รายการอื่น</p>
+        )}
+      </div>
+
+      <div className="order-footer">
+        <span>รวม: ฿{order.totalAmount.toLocaleString()}</span>
+        <span>{new Date(order.createdAt).toLocaleDateString('th-TH')}</span>
+      </div>
+
+      {order.canCancel && (
+        <button
+          className="cancel-btn"
+          onClick={() => handleCancelOrder(order.id)}
+        >
+          ยกเลิกคำสั่งซื้อ
+        </button>
+      )}
+    </div>
+  );
+};
+
+function getStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    '': 'ทั้งหมด',
+    'PENDING': 'รอดำเนินการ',
+    'CONFIRMED': 'ยืนยันแล้ว',
+    'PAID': 'ชำระเงินแล้ว',
+    'PREPARING': 'กำลังเตรียม',
+    'SHIPPED': 'กำลังจัดส่ง',
+    'DELIVERED': 'ส่งแล้ว',
+    'CANCELLED': 'ยกเลิก',
+    'REFUNDED': 'คืนเงินแล้ว',
+  };
+  return labels[status] || status;
+}
+
+function handleCancelOrder(orderId: string) {
+  // Implement cancel logic
 }
 ```
 
 ---
 
-## 8. GraphQL Federation
+## 8. Apollo Federation สำหรับ Microservices
 
-### 8.1 Apollo Federation Setup
+### 8.1 Federation Setup
 
 ```typescript
-// federation/gateway/index.ts
+// gateway/federation-gateway.ts
 import { ApolloGateway, IntrospectAndCompose, RemoteGraphQLDataSource } from '@apollo/gateway';
 import { ApolloServer } from '@apollo/server';
 import { startStandaloneServer } from '@apollo/server/standalone';
 
 class AuthenticatedDataSource extends RemoteGraphQLDataSource {
   willSendRequest({ request, context }: any) {
-    // Forward auth headers to subgraphs
-    request.http.headers.set('Authorization', context.authHeader || '');
-    request.http.headers.set('X-Tenant-Id', context.tenantId || '');
-    request.http.headers.set('X-User-Id', context.userId || '');
+    // ส่ง auth headers ไปยัง subgraph
+    request.http.headers.set('x-user-id', context.userId);
+    request.http.headers.set('x-user-role', context.userRole);
+    request.http.headers.set('authorization', context.token || '');
   }
 }
 
 const gateway = new ApolloGateway({
   supergraphSdl: new IntrospectAndCompose({
     subgraphs: [
-      { name: 'users', url: 'http://user-service:3003/graphql' },
-      { name: 'messages', url: 'http://message-service:3002/graphql' },
-      { name: 'conversations', url: 'http://conversation-service:3006/graphql' },
-      { name: 'analytics', url: 'http://analytics-service:3004/graphql' },
-      { name: 'broadcasts', url: 'http://broadcast-service:3007/graphql' }
+      { name: 'users', url: 'http://user-service:4001/graphql' },
+      { name: 'orders', url: 'http://order-service:4002/graphql' },
+      { name: 'products', url: 'http://product-service:4003/graphql' },
+      { name: 'analytics', url: 'http://analytics-service:4004/graphql' },
+      { name: 'line', url: 'http://line-service:4005/graphql' },
     ],
-    subgraphHealthCheck: true,
-    pollIntervalInMs: 30000
   }),
   buildService({ url }) {
     return new AuthenticatedDataSource({ url });
   },
-  serviceHealthCheck: true
 });
 
 const server = new ApolloServer({
   gateway,
-  plugins: [{
-    async requestDidStart() {
-      return {
-        async willSendResponse({ response }) {
-          response.http.headers.set('X-GraphQL-Gateway', 'Apollo Federation v2');
-        }
-      };
-    }
-  }]
 });
 
 const { url } = await startStandaloneServer(server, {
-  context: async ({ req }) => ({
-    authHeader: req.headers.authorization,
-    tenantId: req.headers['x-tenant-id'],
-    userId: req.headers['x-user-id']
-  }),
-  listen: { port: 4000 }
+  context: async ({ req }) => {
+    return {
+      token: req.headers.authorization,
+      userId: req.headers['x-user-id'],
+      userRole: req.headers['x-user-role'],
+    };
+  },
+  listen: { port: 4000 },
 });
 
-console.log(`Gateway ready at ${url}`);
+console.log(`Gateway running at ${url}`);
+```
 
-// federation/subgraphs/user-service/schema.graphql
-// User Subgraph
-const userSubgraphSchema = `
-  extend schema @link(url: "https://specs.apollo.dev/federation/v2.0", import: ["@key", "@external", "@requires", "@provides"])
+### 8.2 Subgraph Schema (User Service)
+
+```typescript
+// user-service/schema.ts
+import { buildSubgraphSchema } from '@apollo/subgraph';
+import gql from 'graphql-tag';
+
+const typeDefs = gql`
+  extend schema @link(url: "https://specs.apollo.dev/federation/v2.0", import: ["@key"])
 
   type User @key(fields: "id") {
     id: ID!
     lineUserId: String!
     displayName: String!
-    pictureUrl: String
-    status: UserStatus!
-    followedAt: DateTime!
-    lastSeenAt: DateTime
-  }
-
-  enum UserStatus {
-    ACTIVE
-    BLOCKED
-    UNFOLLOWED
+    email: String
+    loyaltyPoints: Int!
   }
 
   type Query {
+    me: User
     user(id: ID!): User
-    users(first: Int, after: String): UserConnection!
-  }
-
-  type UserConnection {
-    edges: [UserEdge!]!
-    pageInfo: PageInfo!
-    totalCount: Int!
-  }
-
-  type UserEdge {
-    node: User!
-    cursor: String!
-  }
-
-  type PageInfo {
-    hasNextPage: Boolean!
-    hasPreviousPage: Boolean!
-    startCursor: String
-    endCursor: String
   }
 `;
 
-// Message Subgraph
-const messageSubgraphSchema = `
-  extend schema @link(url: "https://specs.apollo.dev/federation/v2.0", import: ["@key", "@external", "@requires", "@provides"])
+const resolvers = {
+  User: {
+    __resolveReference: async (user: { id: string }, context: any) => {
+      return await getUserById(user.id);
+    },
+  },
+  Query: {
+    me: async (_: any, __: any, context: any) => {
+      return getUserById(context.userId);
+    },
+    user: async (_: any, { id }: any, context: any) => {
+      if (context.userRole !== 'admin') throw new Error('Forbidden');
+      return getUserById(id);
+    },
+  },
+};
 
-  type User @key(fields: "id") @extends {
-    id: ID! @external
-    messages(first: Int, after: String): MessageConnection! @requires(fields: "id")
-  }
-
-  type Message @key(fields: "id") {
-    id: ID!
-    type: MessageType!
-    content: JSON!
-    userId: ID!
-    user: User!
-    sentAt: DateTime!
-  }
-
-  enum MessageType {
-    TEXT IMAGE VIDEO AUDIO STICKER
-  }
-
-  type Query {
-    message(id: ID!): Message
-    messages(first: Int, after: String, userId: ID): MessageConnection!
-  }
-
-  type MessageConnection {
-    edges: [MessageEdge!]!
-    pageInfo: PageInfo!
-    totalCount: Int!
-  }
-
-  type MessageEdge {
-    node: Message!
-    cursor: String!
-  }
-`;
+export const schema = buildSubgraphSchema({ typeDefs, resolvers });
 ```
 
 ---
 
 ## 9. GraphQL Security
 
-### 9.1 Query Complexity and Depth Limiting
+### 9.1 Depth Limiting และ Complexity
 
 ```typescript
-// plugins/ComplexityPlugin.ts
-import { ApolloServerPlugin } from '@apollo/server';
-import { getComplexity, simpleEstimator, fieldExtensionsEstimator } from 'graphql-query-complexity';
-import { GraphQLError } from 'graphql';
+// graphql/security/rules.ts
+import depthLimit from 'graphql-depth-limit';
+import { createComplexityLimitRule } from 'graphql-query-complexity';
+import { fieldExtensionsEstimator, simpleEstimator } from 'graphql-query-complexity';
 
-interface ComplexityConfig {
-  maxComplexity: number;
-  maxDepth?: number;
+export const securityRules = [
+  // ป้องกัน deeply nested queries
+  depthLimit(10, { ignore: ['__schema', '__type'] }),
+  
+  // ป้องกัน expensive queries
+  createComplexityLimitRule(1000, {
+    estimators: [
+      fieldExtensionsEstimator(),
+      simpleEstimator({ defaultComplexity: 1 }),
+    ],
+    formatErrorMessage: (cost) =>
+      `Query too complex: ${cost}. Maximum allowed: 1000`,
+    onCost: (cost, args) => {
+      if (cost > 500) {
+        console.warn(`High complexity query: ${cost}`, {
+          operation: args.operationName,
+        });
+      }
+    },
+  }),
+];
+
+// Rate limiting per user
+import { RateLimiterRedis } from 'rate-limiter-flexible';
+import Redis from 'ioredis';
+
+const redisClient = new Redis(process.env.REDIS_URL);
+
+export const queryRateLimiter = new RateLimiterRedis({
+  storeClient: redisClient,
+  keyPrefix: 'graphql_rate_limit',
+  points: 100,   // 100 queries
+  duration: 60,  // per 60 seconds
+  blockDuration: 60,
+});
+
+// Middleware สำหรับ rate limiting
+export async function rateLimitMiddleware(
+  req: any,
+  res: any,
+  next: any
+): Promise<void> {
+  const userId = req.user?.id || req.ip;
+  
+  try {
+    await queryRateLimiter.consume(userId);
+    next();
+  } catch (rateLimiterRes) {
+    res.status(429).json({
+      error: 'Too many requests',
+      retryAfter: Math.ceil((rateLimiterRes as any).msBeforeNext / 1000),
+    });
+  }
 }
+```
 
-export function createComplexityPlugin(config: ComplexityConfig): ApolloServerPlugin {
+### 9.2 Persisted Queries
+
+```typescript
+// graphql/security/persisted-queries.ts
+import { createPersistedQueryLink } from '@apollo/client/link/persisted-queries';
+import { sha256 } from 'crypto-hash';
+
+// Client-side: ส่งเฉพาะ hash ของ query
+export const persistedQueriesLink = createPersistedQueryLink({
+  sha256,
+  useGETForHashedQueries: true,
+});
+
+// Server-side: whitelist ของ queries ที่อนุญาต
+const ALLOWED_QUERIES = new Map([
+  ['abc123', 'query GetMyOrders { orders { nodes { id status } } }'],
+  ['def456', 'query GetProduct($id: ID!) { product(id: $id) { id name price } }'],
+]);
+
+export function persistedQueryPlugin() {
   return {
     async requestDidStart() {
       return {
-        async didResolveOperation({ request, document }) {
-          // Calculate query complexity
-          const complexity = getComplexity({
-            schema: (request as any).schema,
-            operationName: request.operationName,
-            query: document,
-            variables: request.variables,
-            estimators: [
-              fieldExtensionsEstimator(),
-              simpleEstimator({
-                defaultComplexity: 1
-              })
-            ]
-          });
-
-          if (complexity > config.maxComplexity) {
-            throw new GraphQLError(
-              `Query complexity ${complexity} exceeds maximum allowed complexity ${config.maxComplexity}`,
-              { extensions: { code: 'QUERY_TOO_COMPLEX', complexity } }
-            );
+        async parsingDidStart({ queryString, operationName }: any) {
+          if (process.env.NODE_ENV === 'production') {
+            // ใน production ยอมรับเฉพาะ persisted queries
+            // ตรวจสอบว่า query อยู่ใน whitelist
           }
-
-          // Log complexity
-          console.log(`Query complexity: ${complexity}`);
-        }
-      };
-    }
-  };
-}
-
-// Depth limiting
-import depthLimit from 'graphql-depth-limit';
-
-export function createDepthLimitRule(maxDepth: number = 7) {
-  return depthLimit(maxDepth, { ignore: ['__schema', '__type'] });
-}
-
-// Field-level Authorization
-export function createAuthDirective() {
-  return {
-    authDirectiveTransformer(schema: any) {
-      // Implement @auth directive
-      return schema;
-    }
-  };
-}
-
-// plugins/LoggingPlugin.ts
-export function createLoggingPlugin(): ApolloServerPlugin {
-  return {
-    async requestDidStart(requestContext) {
-      const startTime = Date.now();
-      
-      return {
-        async willSendResponse(responseContext) {
-          const duration = Date.now() - startTime;
-          const { request, response } = responseContext;
-          
-          console.log({
-            operation: request.operationName || 'anonymous',
-            duration: `${duration}ms`,
-            hasErrors: !!response.body,
-            complexity: (responseContext as any).overallCachePolicy?.maxAge
-          });
         },
-
-        async didEncounterErrors({ errors }) {
-          errors.forEach(error => {
-            if (error.extensions?.code !== 'NOT_FOUND') {
-              console.error('GraphQL Error:', {
-                message: error.message,
-                path: error.path,
-                code: error.extensions?.code
-              });
-            }
-          });
-        }
       };
-    }
+    },
   };
 }
 ```
 
 ---
 
-## 10. Complete GraphQL API สำหรับ LINE Bot
+## 10. Complete GraphQL API Implementation
 
-### 10.1 Mutation Resolvers
+### 10.1 Product Resolver
 
 ```typescript
-// resolvers/MutationResolvers.ts
-import { GraphQLError } from 'graphql';
-import { LINEAPIClient } from '../line/LINEAPIClient';
-import { UserService } from '../services/UserService';
-import { BroadcastService } from '../services/BroadcastService';
-import { RichMenuService } from '../services/RichMenuService';
-import { getPubSub, EVENTS } from '../subscriptions/PubSubService';
+// graphql/resolvers/product.resolver.ts
 
-export const MutationResolvers = {
-  sendMessage: async (parent: any, { input }: any, ctx: any) => {
-    const { userId, messageType, content, replyToken } = input;
-    
-    const lineClient = new LINEAPIClient(ctx.lineAccessToken);
-    
-    try {
-      if (replyToken) {
-        await lineClient.replyMessage(replyToken, [content]);
-      } else {
-        await lineClient.pushMessage(userId, [content]);
-      }
+export const resolvers = {
+  Query: {
+    product: async (_: any, { id }: { id: string }, context: GraphQLContext) => {
+      const product = await productService.getById(id);
+      if (!product) throw new NotFoundError('ไม่พบสินค้า');
+      return product;
+    },
 
-      const message = {
-        id: require('crypto').randomUUID(),
-        messageId: `msg_${Date.now()}`,
-        type: messageType,
-        content,
-        direction: 'OUTBOUND',
-        userId,
-        tenantId: ctx.tenantId,
-        sentAt: new Date()
+    products: async (_: any, args: any) => {
+      const [nodes, totalCount] = await Promise.all([
+        productService.search(args),
+        productService.count(args),
+      ]);
+
+      return {
+        nodes,
+        totalCount,
+        pageInfo: {
+          hasNextPage: (args.offset || 0) + nodes.length < totalCount,
+          hasPreviousPage: (args.offset || 0) > 0,
+        },
       };
-
-      // Publish สำหรับ subscriptions
-      await getPubSub().publish(EVENTS.MESSAGE_SENT, {
-        messageSent: message
-      });
-
-      return { success: true, messageId: message.messageId };
-    } catch (error) {
-      return { success: false, error: (error as Error).message };
-    }
+    },
   },
 
-  updateUserTags: async (parent: any, { userId, tags }: any, ctx: any) => {
-    const userService = new UserService(ctx.tenantId);
-    const user = await userService.updateTags(userId, tags);
-    if (!user) throw new GraphQLError('User not found', {
-      extensions: { code: 'NOT_FOUND' }
-    });
-    return user;
-  },
+  Product: {
+    category: (parent: any, _: any, context: GraphQLContext) =>
+      context.dataLoaders.productCategoryLoader.load(parent.categoryId),
 
-  blockUser: async (parent: any, { userId, reason }: any, ctx: any) => {
-    const userService = new UserService(ctx.tenantId);
-    return userService.blockUser(userId, reason);
-  },
+    images: (parent: any, _: any, context: GraphQLContext) =>
+      context.dataLoaders.productImagesLoader.load(parent.id),
 
-  createRichMenu: async (parent: any, { input }: any, ctx: any) => {
-    const richMenuService = new RichMenuService(ctx.tenantId, ctx.lineAccessToken);
-    return richMenuService.create(input);
-  },
+    primaryImage: async (parent: any, _: any, context: GraphQLContext) => {
+      const images = await context.dataLoaders.productImagesLoader.load(parent.id);
+      return images[0] || null;
+    },
 
-  setDefaultRichMenu: async (parent: any, { id }: any, ctx: any) => {
-    const richMenuService = new RichMenuService(ctx.tenantId, ctx.lineAccessToken);
-    return richMenuService.setDefault(id);
-  },
+    isAvailable: (parent: any) => parent.stockQuantity > 0,
 
-  createBroadcast: async (parent: any, { input }: any, ctx: any) => {
-    const broadcastService = new BroadcastService(ctx.tenantId);
-    return broadcastService.create({ ...input, createdBy: ctx.userId });
-  },
+    reviewCount: async (parent: any, _: any, context: GraphQLContext) => {
+      return reviewService.countByProduct(parent.id);
+    },
 
-  scheduleBroadcast: async (parent: any, { id, scheduledAt }: any, ctx: any) => {
-    const broadcastService = new BroadcastService(ctx.tenantId);
-    return broadcastService.schedule(id, scheduledAt);
+    averageRating: async (parent: any, _: any, context: GraphQLContext) => {
+      return reviewService.averageRatingByProduct(parent.id);
+    },
   },
-
-  cancelBroadcast: async (parent: any, { id }: any, ctx: any) => {
-    const broadcastService = new BroadcastService(ctx.tenantId);
-    return broadcastService.cancel(id);
-  },
-
-  updateBotSettings: async (parent: any, { input }: any, ctx: any) => {
-    // Update settings in database
-    return input;
-  }
 };
-
-// utils/cursor.ts
-export function toCursor(id: string): string {
-  return Buffer.from(`cursor:${id}`).toString('base64');
-}
-
-export function fromCursor(cursor: string): string {
-  const decoded = Buffer.from(cursor, 'base64').toString('utf-8');
-  return decoded.replace('cursor:', '');
-}
 ```
 
-### 10.2 Performance Benchmarks
+### 10.2 Analytics Resolver
 
 ```typescript
-// benchmarks/graphql-performance.ts
-// ผลการ benchmark บน server ขนาด 4 vCPU, 8GB RAM
+// graphql/resolvers/analytics.resolver.ts
 
-const BENCHMARKS = {
-  simpleQuery: {
-    query: 'query { users(first: 10) { edges { node { id displayName } } } }',
-    p50: '12ms',
-    p95: '28ms',
-    p99: '45ms',
-    rps: 850
-  },
-  complexQuery: {
-    query: `query {
-      users(first: 20) {
-        edges {
-          node {
-            id displayName
-            conversations(first: 5) {
-              edges {
-                node {
-                  id
-                  messages(first: 3) {
-                    edges { node { id content } }
-                  }
-                }
-              }
-            }
-          }
-        }
+export const resolvers = {
+  Query: {
+    analytics: async (
+      _: any,
+      { dateFrom, dateTo }: { dateFrom: Date; dateTo: Date },
+      context: GraphQLContext
+    ) => {
+      if (!context.user?.isAdmin) {
+        throw new ForbiddenError('ต้องเป็น Admin');
       }
-    }`,
-    p50: '45ms',
-    p95: '120ms',
-    p99: '250ms',
-    rps: 180,
-    note: 'Improved with DataLoader (without DataLoader: p50=800ms)'
+
+      const [
+        totalOrders,
+        totalRevenue,
+        newUsers,
+        activeUsers,
+        topProducts,
+        conversionRate,
+      ] = await Promise.all([
+        analyticsService.countOrders(dateFrom, dateTo),
+        analyticsService.sumRevenue(dateFrom, dateTo),
+        analyticsService.countNewUsers(dateFrom, dateTo),
+        analyticsService.countActiveUsers(dateFrom, dateTo),
+        analyticsService.getTopProducts(dateFrom, dateTo, 10),
+        analyticsService.calculateConversionRate(dateFrom, dateTo),
+      ]);
+
+      return {
+        dateFrom,
+        dateTo,
+        totalOrders,
+        totalRevenue,
+        newUsers,
+        activeUsers,
+        topProducts,
+        conversionRate,
+      };
+    },
   },
-  subscription: {
-    type: 'WebSocket Subscription',
-    connectionSetupTime: '35ms',
-    eventDeliveryLatency: '5ms',
-    concurrentSubscriptions: 10000
-  }
 };
+```
+
+### 10.3 Error Handling
+
+```typescript
+// graphql/errors/index.ts
+import { GraphQLError } from 'graphql';
+
+export class AuthenticationError extends GraphQLError {
+  constructor(message = 'กรุณาเข้าสู่ระบบก่อน') {
+    super(message, {
+      extensions: {
+        code: 'UNAUTHENTICATED',
+        http: { status: 401 },
+      },
+    });
+  }
+}
+
+export class ForbiddenError extends GraphQLError {
+  constructor(message = 'ไม่มีสิทธิ์เข้าถึง') {
+    super(message, {
+      extensions: {
+        code: 'FORBIDDEN',
+        http: { status: 403 },
+      },
+    });
+  }
+}
+
+export class NotFoundError extends GraphQLError {
+  constructor(message = 'ไม่พบข้อมูล') {
+    super(message, {
+      extensions: {
+        code: 'NOT_FOUND',
+        http: { status: 404 },
+      },
+    });
+  }
+}
+
+export class ValidationError extends GraphQLError {
+  constructor(message: string) {
+    super(message, {
+      extensions: {
+        code: 'BAD_USER_INPUT',
+        http: { status: 400 },
+      },
+    });
+  }
+}
 ```
 
 ---
 
 ## สรุป
 
-GraphQL เป็นตัวเลือกที่ยอดเยี่ยมสำหรับ LINE Bot backend เพราะ:
+ในบทนี้เราได้เรียนรู้:
 
-1. **Flexible Queries** - Client กำหนดข้อมูลที่ต้องการได้เอง ลด overfetching/underfetching
-2. **Type Safety** - Schema เป็น contract ระหว่าง frontend และ backend
-3. **Real-time** - Subscriptions สำหรับ real-time events
-4. **DataLoader** - แก้ N+1 problem ด้วย batching
-5. **Federation** - รวม microservices เป็น unified graph
-6. **LIFF Integration** - Apollo Client ทำงานร่วมกับ LIFF ได้ดี
+1. **GraphQL Schema Design** สำหรับ LINE data types
+2. **Apollo Server 4** setup พร้อม WebSocket subscriptions
+3. **Resolvers** สำหรับ User, Order, Product
+4. **DataLoader** ป้องกัน N+1 problem
+5. **Real-time Subscriptions** ด้วย Redis PubSub
+6. **LIFF Integration** กับ Apollo Client
+7. **Apollo Federation** สำหรับ microservices
+8. **Security** ด้วย depth limiting, complexity, persisted queries
 
-Key considerations:
-- ใช้ **DataLoader** เสมอเพื่อป้องกัน N+1 queries
-- ตั้ง **complexity limits** เพื่อป้องกัน DoS
-- ใช้ **cursor-based pagination** สำหรับ large datasets
-- **Cache** ผลลัพธ์ที่ซ้ำบ่อยๆ
-- **Federation** สำหรับ microservices architecture
+GraphQL เหมาะมากสำหรับ LIFF apps ที่ต้องการข้อมูลหลากหลายรูปแบบ และ real-time features ด้วย subscriptions

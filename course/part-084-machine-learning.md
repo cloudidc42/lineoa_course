@@ -1862,3 +1862,1029 @@ Pipeline ควรรัน:
 ---
 
 *จบ Part 84: Machine Learning สำหรับ LINE Bots (ฉบับสมบูรณ์)*
+
+---
+
+## บทที่ 17: ระบบ A/B Testing สำหรับ Machine Learning Models
+
+### การออกแบบ Multi-Armed Bandit System
+
+```python
+import numpy as np
+from typing import Dict, List, Optional
+import redis
+import json
+from datetime import datetime, timedelta
+
+class ThompsonSamplingBandit:
+    """
+    Thompson Sampling Multi-Armed Bandit สำหรับ Online Learning
+    ใช้สำหรับ optimize model selection แบบ real-time
+    """
+    
+    def __init__(self, redis_client, experiment_id: str):
+        self.redis = redis_client
+        self.experiment_id = experiment_id
+        self.key_prefix = f"bandit:{experiment_id}"
+    
+    def _get_arm_stats(self, arm_id: str) -> Dict:
+        """ดึงสถิติของ arm จาก Redis"""
+        key = f"{self.key_prefix}:arm:{arm_id}"
+        data = self.redis.hgetall(key)
+        if not data:
+            return {"alpha": 1.0, "beta": 1.0, "total": 0, "wins": 0}
+        return {
+            "alpha": float(data.get(b"alpha", 1.0)),
+            "beta": float(data.get(b"beta", 1.0)),
+            "total": int(data.get(b"total", 0)),
+            "wins": int(data.get(b"wins", 0))
+        }
+    
+    def select_arm(self, available_arms: List[str]) -> str:
+        """เลือก arm ด้วย Thompson Sampling"""
+        samples = {}
+        for arm_id in available_arms:
+            stats = self._get_arm_stats(arm_id)
+            # Sample จาก Beta distribution
+            sample = np.random.beta(stats["alpha"], stats["beta"])
+            samples[arm_id] = sample
+        
+        # เลือก arm ที่มี sample สูงสุด
+        selected = max(samples, key=samples.get)
+        return selected
+    
+    def record_result(self, arm_id: str, success: bool):
+        """บันทึกผลลัพธ์และ update Beta distribution"""
+        key = f"{self.key_prefix}:arm:{arm_id}"
+        stats = self._get_arm_stats(arm_id)
+        
+        stats["total"] += 1
+        if success:
+            stats["wins"] += 1
+            stats["alpha"] += 1  # Beta(alpha+1, beta) เมื่อ success
+        else:
+            stats["beta"] += 1   # Beta(alpha, beta+1) เมื่อ fail
+        
+        self.redis.hset(key, mapping={
+            "alpha": stats["alpha"],
+            "beta": stats["beta"],
+            "total": stats["total"],
+            "wins": stats["wins"],
+            "updated_at": datetime.now().isoformat()
+        })
+        self.redis.expire(key, 86400 * 30)  # expire 30 วัน
+    
+    def get_statistics(self) -> Dict:
+        """สรุปสถิติของทุก arm"""
+        pattern = f"{self.key_prefix}:arm:*"
+        keys = self.redis.keys(pattern)
+        stats = {}
+        
+        for key in keys:
+            arm_id = key.decode().split(":")[-1]
+            arm_stats = self._get_arm_stats(arm_id)
+            win_rate = arm_stats["wins"] / arm_stats["total"] if arm_stats["total"] > 0 else 0
+            stats[arm_id] = {
+                **arm_stats,
+                "win_rate": win_rate,
+                "confidence_interval": self._calculate_ci(arm_stats)
+            }
+        
+        return stats
+    
+    def _calculate_ci(self, stats: Dict, confidence: float = 0.95) -> Dict:
+        """คำนวณ Confidence Interval ของ Beta distribution"""
+        from scipy import stats as scipy_stats
+        alpha, beta = stats["alpha"], stats["beta"]
+        
+        # Wilson Score Interval
+        lower = scipy_stats.beta.ppf((1 - confidence) / 2, alpha, beta)
+        upper = scipy_stats.beta.ppf(1 - (1 - confidence) / 2, alpha, beta)
+        
+        return {"lower": lower, "upper": upper}
+
+
+class MLModelABTestOrchestrator:
+    """
+    Orchestrator สำหรับ A/B Testing ระหว่าง ML Models
+    รองรับ Statistical Significance Testing และ Early Stopping
+    """
+    
+    def __init__(self, redis_client, db_pool, mlflow_client):
+        self.redis = redis_client
+        self.db = db_pool
+        self.mlflow = mlflow_client
+        self.bandit_cache = {}
+    
+    def create_experiment(
+        self,
+        experiment_id: str,
+        models: List[Dict],
+        metric: str = "user_engagement",
+        min_samples: int = 1000,
+        significance_level: float = 0.05
+    ) -> Dict:
+        """
+        สร้าง Experiment ใหม่
+        
+        Args:
+            models: รายการ model configs [{"id": "v1", "run_id": "mlflow_run_id", "traffic_pct": 50}, ...]
+            metric: metric ที่ใช้วัดผล
+            min_samples: จำนวน samples ขั้นต่ำก่อนสรุปผล
+        """
+        experiment_config = {
+            "id": experiment_id,
+            "models": models,
+            "metric": metric,
+            "min_samples": min_samples,
+            "significance_level": significance_level,
+            "status": "running",
+            "created_at": datetime.now().isoformat()
+        }
+        
+        # บันทึกลง Redis
+        self.redis.setex(
+            f"experiment:{experiment_id}",
+            86400 * 30,
+            json.dumps(experiment_config)
+        )
+        
+        # สร้าง Bandit สำหรับ experiment นี้
+        self.bandit_cache[experiment_id] = ThompsonSamplingBandit(
+            self.redis, experiment_id
+        )
+        
+        return experiment_config
+    
+    def get_model_for_user(self, experiment_id: str, user_id: str) -> Optional[str]:
+        """
+        เลือก Model สำหรับ User โดยใช้ Consistent Hashing + Thompson Sampling
+        """
+        exp_key = f"experiment:{experiment_id}"
+        exp_data = self.redis.get(exp_key)
+        if not exp_data:
+            return None
+        
+        config = json.loads(exp_data)
+        if config["status"] != "running":
+            # ถ้า experiment จบแล้ว ใช้ winner เสมอ
+            return config.get("winner")
+        
+        # ตรวจสอบว่า user นี้ถูก assign model ไปแล้วหรือยัง
+        assignment_key = f"exp:{experiment_id}:user:{user_id}"
+        assigned = self.redis.get(assignment_key)
+        if assigned:
+            return assigned.decode()
+        
+        # เลือก model ด้วย Bandit
+        model_ids = [m["id"] for m in config["models"]]
+        if experiment_id in self.bandit_cache:
+            selected = self.bandit_cache[experiment_id].select_arm(model_ids)
+        else:
+            # Fallback: uniform random
+            selected = np.random.choice(model_ids)
+        
+        # Assign และ cache
+        self.redis.setex(assignment_key, 86400 * 7, selected)  # 7 วัน
+        return selected
+    
+    def record_interaction(
+        self,
+        experiment_id: str,
+        user_id: str,
+        model_id: str,
+        event_type: str,
+        metric_value: float = 1.0
+    ):
+        """บันทึก interaction และ update Bandit"""
+        success = event_type in ["click", "purchase", "positive_feedback"]
+        
+        if experiment_id in self.bandit_cache:
+            self.bandit_cache[experiment_id].record_result(model_id, success)
+        
+        # Log ลง database สำหรับ analysis
+        self.db.execute("""
+            INSERT INTO ml_experiment_events 
+            (experiment_id, user_id, model_id, event_type, metric_value, timestamp)
+            VALUES ($1, $2, $3, $4, $5, NOW())
+        """, experiment_id, user_id, model_id, event_type, metric_value)
+        
+        # ตรวจสอบ Early Stopping
+        self._check_early_stopping(experiment_id)
+    
+    def _check_early_stopping(self, experiment_id: str):
+        """ตรวจสอบว่าควรหยุด experiment เร็วไหม (Bayesian Sequential Testing)"""
+        exp_data = self.redis.get(f"experiment:{experiment_id}")
+        if not exp_data:
+            return
+        
+        config = json.loads(exp_data)
+        if config["status"] != "running":
+            return
+        
+        bandit = self.bandit_cache.get(experiment_id)
+        if not bandit:
+            return
+        
+        stats = bandit.get_statistics()
+        
+        # ตรวจสอบว่ามี samples เพียงพอหรือยัง
+        total_samples = sum(s["total"] for s in stats.values())
+        if total_samples < config["min_samples"]:
+            return
+        
+        # Bayesian Probability of Best Arm
+        model_ids = list(stats.keys())
+        if len(model_ids) < 2:
+            return
+        
+        # Monte Carlo simulation
+        n_simulations = 10000
+        wins = {mid: 0 for mid in model_ids}
+        
+        for _ in range(n_simulations):
+            samples = {
+                mid: np.random.beta(stats[mid]["alpha"], stats[mid]["beta"])
+                for mid in model_ids
+            }
+            winner = max(samples, key=samples.get)
+            wins[winner] += 1
+        
+        probs = {mid: wins[mid] / n_simulations for mid in model_ids}
+        best_arm = max(probs, key=probs.get)
+        best_prob = probs[best_arm]
+        
+        # ถ้า probability > 95% หยุด experiment
+        if best_prob >= 0.95:
+            config["status"] = "completed"
+            config["winner"] = best_arm
+            config["winner_probability"] = best_prob
+            config["completed_at"] = datetime.now().isoformat()
+            config["total_samples"] = total_samples
+            
+            self.redis.setex(
+                f"experiment:{experiment_id}",
+                86400 * 90,  # เก็บ 90 วัน
+                json.dumps(config)
+            )
+            
+            print(f"Experiment {experiment_id} completed! Winner: {best_arm} (p={best_prob:.3f})")
+    
+    def get_experiment_report(self, experiment_id: str) -> Dict:
+        """สร้าง Report สรุปผล Experiment"""
+        exp_data = self.redis.get(f"experiment:{experiment_id}")
+        if not exp_data:
+            return {"error": "Experiment not found"}
+        
+        config = json.loads(exp_data)
+        bandit = self.bandit_cache.get(experiment_id)
+        
+        report = {
+            "experiment_id": experiment_id,
+            "status": config["status"],
+            "created_at": config["created_at"],
+            "metric": config["metric"],
+            "model_stats": {}
+        }
+        
+        if bandit:
+            stats = bandit.get_statistics()
+            for model_id, model_stats in stats.items():
+                report["model_stats"][model_id] = {
+                    "total_users": model_stats["total"],
+                    "conversions": model_stats["wins"],
+                    "win_rate": model_stats["win_rate"],
+                    "confidence_interval_95": model_stats["confidence_interval"]
+                }
+        
+        if config["status"] == "completed":
+            report["winner"] = config.get("winner")
+            report["winner_probability"] = config.get("winner_probability")
+            report["total_samples"] = config.get("total_samples")
+        
+        return report
+```
+
+### Integration กับ LINE Bot
+
+```python
+class MLPoweredLineBot:
+    """LINE Bot ที่ใช้ ML สำหรับทุก feature หลัก"""
+    
+    def __init__(self, line_bot_api, ml_services):
+        self.line_bot_api = line_bot_api
+        self.recommender = ml_services["recommender"]
+        self.intent_classifier = ml_services["intent_classifier"]
+        self.churn_predictor = ml_services["churn_predictor"]
+        self.ab_orchestrator = ml_services["ab_orchestrator"]
+        self.personalized_content = ml_services["content_personalizer"]
+    
+    async def handle_message(self, event):
+        """จัดการ Message Event ด้วย ML Pipeline"""
+        user_id = event.source.user_id
+        message_text = event.message.text
+        
+        # 1. Intent Classification
+        intent_result = await self.intent_classifier.classify_async(message_text)
+        intent = intent_result["intent"]
+        confidence = intent_result["confidence"]
+        
+        # 2. เลือก Model version ตาม A/B Test
+        model_version = self.ab_orchestrator.get_model_for_user(
+            "response_model_v2_test", user_id
+        )
+        
+        # 3. Route ไปยัง handler ที่เหมาะสม
+        if intent == "product_inquiry" and confidence > 0.7:
+            response = await self._handle_product_inquiry(
+                user_id, message_text, model_version
+            )
+        elif intent == "complaint" and confidence > 0.6:
+            response = await self._handle_complaint(user_id, message_text)
+        elif intent == "order_status":
+            response = await self._handle_order_status(user_id)
+        else:
+            response = await self._handle_general_query(
+                user_id, message_text, model_version
+            )
+        
+        # 4. บันทึก interaction สำหรับ A/B Test
+        self.ab_orchestrator.record_interaction(
+            "response_model_v2_test",
+            user_id,
+            model_version or "default",
+            "message_sent"
+        )
+        
+        # 5. ส่ง Response
+        self.line_bot_api.reply_message(event.reply_token, response)
+        
+        # 6. Background: Churn Risk Check
+        await self._check_churn_risk_async(user_id)
+    
+    async def _handle_product_inquiry(
+        self, user_id: str, query: str, model_version: str
+    ):
+        """จัดการ Product Inquiry ด้วย Recommendations"""
+        from linebot.models import FlexSendMessage
+        
+        # ดึง recommendations
+        recommendations = self.recommender.get_recommendations(user_id, top_k=5)
+        
+        if not recommendations:
+            # Fallback: แสดงสินค้ายอดนิยม
+            recommendations = self.recommender.get_popular_items(top_k=5)
+        
+        # สร้าง Flex Message
+        flex_content = self._build_product_carousel(recommendations)
+        
+        return FlexSendMessage(
+            alt_text="สินค้าแนะนำสำหรับคุณ",
+            contents=flex_content
+        )
+    
+    async def _check_churn_risk_async(self, user_id: str):
+        """ตรวจสอบ Churn Risk และส่ง Retention Message ถ้าจำเป็น"""
+        import asyncio
+        
+        async def check():
+            features = await self._get_user_features(user_id)
+            churn_prob = self.churn_predictor.predict_proba(features)
+            
+            if churn_prob > 0.7:  # High churn risk
+                # ส่ง Retention message หลัง 5 นาที
+                await asyncio.sleep(300)
+                retention_msg = await self.personalized_content.create_retention_message(
+                    user_id, churn_prob
+                )
+                self.line_bot_api.push_message(user_id, retention_msg)
+        
+        asyncio.create_task(check())
+    
+    def _build_product_carousel(self, products: List[Dict]):
+        """สร้าง Carousel Flex Message สำหรับสินค้า"""
+        bubbles = []
+        for product in products[:10]:  # LINE รองรับสูงสุด 10 bubbles
+            bubble = {
+                "type": "bubble",
+                "hero": {
+                    "type": "image",
+                    "url": product.get("image_url", "https://via.placeholder.com/300"),
+                    "size": "full",
+                    "aspectRatio": "20:13",
+                    "action": {
+                        "type": "uri",
+                        "uri": product.get("product_url", "#")
+                    }
+                },
+                "body": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {
+                            "type": "text",
+                            "text": product.get("name", "สินค้า"),
+                            "weight": "bold",
+                            "size": "xl"
+                        },
+                        {
+                            "type": "text",
+                            "text": f"฿{product.get('price', 0):,.0f}",
+                            "color": "#E74C3C",
+                            "weight": "bold"
+                        },
+                        {
+                            "type": "text",
+                            "text": f"⭐ {product.get('rating', 0):.1f} ({product.get('reviews', 0)} รีวิว)",
+                            "color": "#888888",
+                            "size": "sm"
+                        }
+                    ]
+                },
+                "footer": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {
+                            "type": "button",
+                            "style": "primary",
+                            "action": {
+                                "type": "uri",
+                                "label": "ดูสินค้า",
+                                "uri": product.get("product_url", "#")
+                            }
+                        }
+                    ]
+                }
+            }
+            bubbles.append(bubble)
+        
+        return {
+            "type": "carousel",
+            "contents": bubbles
+        }
+```
+
+---
+
+## บทที่ 18: Federated Learning สำหรับ Privacy-Preserving ML
+
+### ทำไมต้องใช้ Federated Learning
+
+```
+ปัญหาปัจจุบัน:
+- ข้อมูลผู้ใช้ถูกเก็บส่วนกลาง → Privacy Risk
+- PDPA ต้องการ data minimization
+- Users ไม่ต้องการแชร์ข้อมูลส่วนตัว
+
+Federated Learning แก้ปัญหา:
+- Train model บน device ของ user
+- ส่งเฉพาะ model weights (ไม่ใช่ raw data)
+- Aggregate weights บน server
+- Privacy โดย design
+```
+
+### Federated Learning Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│                 Federated Learning Flow              │
+│                                                     │
+│   Server          Client 1     Client 2   Client 3  │
+│     │                │            │          │      │
+│     │  Global Model  │            │          │      │
+│     │─────────────►  │            │          │      │
+│     │─────────────────────────►   │          │      │
+│     │──────────────────────────────────────► │      │
+│     │                │            │          │      │
+│     │  Local Train   │            │          │      │
+│     │                │ (private)  │(private) │      │
+│     │                │            │          │      │
+│     │  Update ΔW     │            │          │      │
+│     │ ◄─────────────  │            │          │      │
+│     │ ◄─────────────────────────   │          │      │
+│     │ ◄──────────────────────────────────────│      │
+│     │                │            │          │      │
+│     │  Aggregate FedAvg           │          │      │
+│     │  W = W + η*mean(ΔW)         │          │      │
+│     │                │            │          │      │
+└─────────────────────────────────────────────────────┘
+```
+
+```python
+import torch
+import torch.nn as nn
+from typing import List, Dict
+import copy
+
+class FederatedLineBot:
+    """
+    Federated Learning สำหรับ LINE Bot Intent Classifier
+    ใช้ FedAvg Algorithm (McMahan et al., 2017)
+    """
+    
+    def __init__(self, global_model: nn.Module, n_rounds: int = 100):
+        self.global_model = global_model
+        self.n_rounds = n_rounds
+        self.round = 0
+        self.client_updates = []
+    
+    def broadcast_global_model(self) -> Dict:
+        """ส่ง Global Model weights ไปยัง Clients"""
+        return {
+            "round": self.round,
+            "weights": {
+                name: param.data.clone()
+                for name, param in self.global_model.named_parameters()
+            }
+        }
+    
+    def receive_client_update(
+        self, 
+        client_id: str, 
+        model_update: Dict,
+        n_samples: int
+    ):
+        """รับ Model Update จาก Client"""
+        self.client_updates.append({
+            "client_id": client_id,
+            "weights": model_update["weights"],
+            "n_samples": n_samples,
+            "round": model_update["round"]
+        })
+    
+    def aggregate_updates(self):
+        """FedAvg: Weighted Average ตามจำนวน samples"""
+        if not self.client_updates:
+            return
+        
+        total_samples = sum(u["n_samples"] for u in self.client_updates)
+        
+        # Initialize aggregated weights
+        aggregated = {}
+        for name, param in self.global_model.named_parameters():
+            aggregated[name] = torch.zeros_like(param.data)
+        
+        # Weighted sum
+        for update in self.client_updates:
+            weight = update["n_samples"] / total_samples
+            for name, delta in update["weights"].items():
+                aggregated[name] += weight * delta
+        
+        # Update Global Model
+        with torch.no_grad():
+            for name, param in self.global_model.named_parameters():
+                param.data = aggregated[name]
+        
+        # Clear updates
+        self.client_updates = []
+        self.round += 1
+        
+        print(f"Round {self.round}: Aggregated {total_samples} samples from {len(self.client_updates)} clients")
+    
+    def add_differential_privacy(self, sensitivity: float = 1.0, epsilon: float = 1.0):
+        """
+        เพิ่ม Differential Privacy ด้วย Gaussian Mechanism
+        ป้องกัน Membership Inference Attack
+        """
+        delta = 1e-5
+        sigma = np.sqrt(2 * np.log(1.25 / delta)) * sensitivity / epsilon
+        
+        with torch.no_grad():
+            for param in self.global_model.parameters():
+                noise = torch.normal(0, sigma, size=param.data.shape)
+                param.data += noise
+        
+        print(f"Added DP noise: σ={sigma:.4f} (ε={epsilon}, δ={delta})")
+
+
+class ClientFederatedTrainer:
+    """
+    Client-side Training (ทำงานบน Edge/Mobile)
+    """
+    
+    def __init__(self, user_id: str, local_data, learning_rate: float = 0.01):
+        self.user_id = user_id
+        self.local_data = local_data
+        self.lr = learning_rate
+        self.local_model = None
+    
+    def load_global_model(self, global_weights: Dict) -> nn.Module:
+        """โหลด Global Model weights"""
+        model = IntentClassifierModel()  # สร้าง model structure
+        
+        # Load weights
+        model_state = {}
+        for name, weight in global_weights.items():
+            model_state[name] = weight.clone()
+        
+        model.load_state_dict(model_state)
+        self.local_model = copy.deepcopy(model)
+        return model
+    
+    def local_train(
+        self, 
+        global_weights: Dict, 
+        n_epochs: int = 5,
+        batch_size: int = 32
+    ) -> Dict:
+        """Train model ด้วย Local Data"""
+        model = self.load_global_model(global_weights)
+        optimizer = torch.optim.SGD(model.parameters(), lr=self.lr)
+        criterion = nn.CrossEntropyLoss()
+        
+        # สร้าง DataLoader จาก local data
+        loader = torch.utils.data.DataLoader(
+            self.local_data, batch_size=batch_size, shuffle=True
+        )
+        
+        model.train()
+        for epoch in range(n_epochs):
+            total_loss = 0
+            for batch_x, batch_y in loader:
+                optimizer.zero_grad()
+                output = model(batch_x)
+                loss = criterion(output, batch_y)
+                loss.backward()
+                
+                # Gradient Clipping (สำหรับ DP)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                
+                optimizer.step()
+                total_loss += loss.item()
+        
+        # คำนวณ Delta Weights (ไม่ส่ง raw data!)
+        delta_weights = {}
+        for name, param in model.named_parameters():
+            global_param = global_weights[name]
+            delta_weights[name] = param.data - global_param
+        
+        return {
+            "weights": delta_weights,
+            "n_samples": len(self.local_data),
+            "loss": total_loss / len(loader)
+        }
+```
+
+---
+
+## บทที่ 19: ML Model Versioning และ Governance
+
+### Model Registry ด้วย MLflow
+
+```python
+import mlflow
+import mlflow.sklearn
+from mlflow.tracking import MlflowClient
+from datetime import datetime
+from typing import Optional
+
+class LineMLModelRegistry:
+    """
+    Model Registry สำหรับ LINE Bot ML Models
+    ครอบคลุม lifecycle ตั้งแต่ training จนถึง production
+    """
+    
+    def __init__(self, mlflow_tracking_uri: str):
+        mlflow.set_tracking_uri(mlflow_tracking_uri)
+        self.client = MlflowClient()
+    
+    def register_model(
+        self,
+        run_id: str,
+        model_name: str,
+        model_artifact_path: str,
+        tags: Optional[Dict] = None,
+        description: Optional[str] = None
+    ) -> str:
+        """Register model และส่งคืน version"""
+        # สร้าง Model Registry entry
+        result = mlflow.register_model(
+            f"runs:/{run_id}/{model_artifact_path}",
+            model_name
+        )
+        
+        # เพิ่ม tags
+        if tags:
+            for key, value in tags.items():
+                self.client.set_model_version_tag(
+                    model_name, result.version, key, value
+                )
+        
+        # เพิ่ม description
+        if description:
+            self.client.update_model_version(
+                name=model_name,
+                version=result.version,
+                description=description
+            )
+        
+        print(f"Registered {model_name} v{result.version}")
+        return result.version
+    
+    def promote_to_staging(self, model_name: str, version: str):
+        """Promote model ไปยัง Staging environment"""
+        self.client.transition_model_version_stage(
+            name=model_name,
+            version=version,
+            stage="Staging",
+            archive_existing_versions=False
+        )
+        
+        # บันทึก approval workflow
+        self.client.set_model_version_tag(
+            model_name, version,
+            "staging_promoted_at",
+            datetime.now().isoformat()
+        )
+    
+    def promote_to_production(
+        self,
+        model_name: str,
+        version: str,
+        approver: str,
+        approval_notes: str = ""
+    ):
+        """Promote model ไปยัง Production (ต้องมี approval)"""
+        # Archive previous production versions
+        self.client.transition_model_version_stage(
+            name=model_name,
+            version=version,
+            stage="Production",
+            archive_existing_versions=True  # Archive old versions
+        )
+        
+        # บันทึก audit trail
+        self.client.set_model_version_tag(model_name, version, "approved_by", approver)
+        self.client.set_model_version_tag(model_name, version, "approval_notes", approval_notes)
+        self.client.set_model_version_tag(
+            model_name, version,
+            "production_promoted_at",
+            datetime.now().isoformat()
+        )
+    
+    def load_production_model(self, model_name: str):
+        """โหลด Production Model version ล่าสุด"""
+        model_uri = f"models:/{model_name}/Production"
+        return mlflow.pyfunc.load_model(model_uri)
+    
+    def compare_models(
+        self,
+        model_name: str,
+        versions: List[str],
+        test_data
+    ) -> Dict:
+        """เปรียบเทียบ Model versions หลายๆ ตัว"""
+        results = {}
+        
+        for version in versions:
+            model_uri = f"models:/{model_name}/{version}"
+            model = mlflow.pyfunc.load_model(model_uri)
+            
+            # รัน predictions
+            predictions = model.predict(test_data["features"])
+            
+            # คำนวณ metrics
+            from sklearn.metrics import accuracy_score, f1_score
+            results[version] = {
+                "accuracy": accuracy_score(test_data["labels"], predictions),
+                "f1_macro": f1_score(test_data["labels"], predictions, average="macro"),
+                "latency_ms": self._measure_latency(model, test_data["features"][:100])
+            }
+        
+        return results
+    
+    def _measure_latency(self, model, samples, n_runs: int = 100) -> float:
+        """วัด Inference Latency"""
+        import time
+        latencies = []
+        
+        for _ in range(n_runs):
+            start = time.perf_counter()
+            model.predict(samples)
+            end = time.perf_counter()
+            latencies.append((end - start) * 1000)
+        
+        return np.percentile(latencies, 95)  # P95 latency
+
+
+class ModelGovernanceManager:
+    """
+    Model Governance: ตรวจสอบ Fairness, Bias, และ Compliance
+    ตาม PDPA และ AI Ethics Guidelines
+    """
+    
+    def __init__(self, db_pool):
+        self.db = db_pool
+    
+    def audit_model_predictions(
+        self,
+        model_name: str,
+        predictions: List[Dict],
+        sensitive_attributes: List[str] = ["age_group", "gender", "region"]
+    ) -> Dict:
+        """
+        ตรวจสอบ Bias ใน Model Predictions
+        ตาม Demographic Parity และ Equal Opportunity
+        """
+        audit_results = {
+            "model_name": model_name,
+            "total_predictions": len(predictions),
+            "bias_analysis": {},
+            "recommendations": []
+        }
+        
+        for attribute in sensitive_attributes:
+            if attribute not in predictions[0]:
+                continue
+            
+            # แบ่ง groups
+            groups = {}
+            for pred in predictions:
+                group = pred[attribute]
+                if group not in groups:
+                    groups[group] = {"positive": 0, "total": 0}
+                groups[group]["total"] += 1
+                if pred["prediction"] == 1:  # Positive prediction
+                    groups[group]["positive"] += 1
+            
+            # คำนวณ Positive Rate ต่อ group
+            positive_rates = {
+                group: data["positive"] / data["total"]
+                for group, data in groups.items()
+                if data["total"] > 0
+            }
+            
+            # Demographic Parity Difference
+            max_rate = max(positive_rates.values())
+            min_rate = min(positive_rates.values())
+            disparity = max_rate - min_rate
+            
+            audit_results["bias_analysis"][attribute] = {
+                "positive_rates": positive_rates,
+                "demographic_parity_difference": disparity,
+                "is_fair": disparity < 0.1  # Threshold: 10%
+            }
+            
+            if disparity >= 0.1:
+                audit_results["recommendations"].append(
+                    f"ตรวจพบ Bias ใน {attribute}: disparate impact = {disparity:.2%}. "
+                    f"แนะนำให้ rebalance training data"
+                )
+        
+        # บันทึก audit log
+        self.db.execute("""
+            INSERT INTO model_audit_logs 
+            (model_name, audit_date, total_predictions, bias_results, created_at)
+            VALUES ($1, NOW(), $2, $3, NOW())
+        """, model_name, len(predictions), json.dumps(audit_results))
+        
+        return audit_results
+    
+    def generate_model_card(self, model_name: str, version: str) -> str:
+        """
+        สร้าง Model Card (เอกสารอธิบาย Model สำหรับ Transparency)
+        ตาม Google Model Cards standard
+        """
+        # ดึงข้อมูลจาก MLflow
+        client = MlflowClient()
+        model_version = client.get_model_version(model_name, version)
+        run = client.get_run(model_version.run_id)
+        
+        metrics = run.data.metrics
+        params = run.data.params
+        tags = run.data.tags
+        
+        card = f"""# Model Card: {model_name} v{version}
+
+## Model Overview
+- **Model Name**: {model_name}
+- **Version**: {version}
+- **Type**: {tags.get('model_type', 'Unknown')}
+- **Created**: {model_version.creation_timestamp}
+- **Author**: {tags.get('author', 'Unknown')}
+
+## Intended Use
+- **Primary Use Case**: {tags.get('use_case', 'LINE Bot Response Classification')}
+- **Intended Users**: Customer Service Teams, Marketing Teams
+- **Out-of-Scope Uses**: ไม่เหมาะสำหรับ Legal decisions หรือ Medical diagnosis
+
+## Training Data
+- **Dataset Size**: {params.get('training_samples', 'N/A')} samples
+- **Languages**: Thai (Primary), English (Secondary)
+- **Time Range**: {params.get('data_start_date', 'N/A')} ถึง {params.get('data_end_date', 'N/A')}
+- **Data Collection**: เก็บจาก LINE Bot conversations (ขอ consent แล้ว)
+
+## Performance Metrics
+| Metric | Value |
+|--------|-------|
+| Accuracy | {metrics.get('accuracy', 'N/A')} |
+| F1 Score (Macro) | {metrics.get('f1_macro', 'N/A')} |
+| Precision | {metrics.get('precision', 'N/A')} |
+| Recall | {metrics.get('recall', 'N/A')} |
+| P95 Latency | {metrics.get('p95_latency_ms', 'N/A')} ms |
+
+## Limitations
+- ประสิทธิภาพลดลงสำหรับ dialect ภาษาไทยที่หายาก
+- อาจมี Bias สำหรับ demographic groups ที่มีข้อมูลน้อย
+- ไม่รองรับภาษา Code-switching ที่ซับซ้อน
+
+## Ethical Considerations
+- ข้อมูล Training ผ่าน anonymization และขอ consent แล้ว
+- ทำ Bias audit ทุก 3 เดือน
+- มี Human-in-the-loop สำหรับ high-stakes decisions
+- ปฏิบัติตาม PDPA 2562
+
+## Monitoring
+- ตรวจสอบ Model Drift ทุกสัปดาห์
+- Alert เมื่อ accuracy ลดลงมากกว่า 5%
+- Retrain ทุกเดือนด้วย fresh data
+"""
+        return card
+```
+
+---
+
+## สรุปบทที่ 19: Key Takeaways
+
+### สิ่งที่เรียนรู้ในบท Machine Learning นี้
+
+```
+1. Recommendation System
+   ├── Collaborative Filtering (User-Item Matrix)
+   ├── Content-Based (Sentence Embeddings)
+   └── Hybrid Approach สำหรับ Cold Start
+
+2. Intent Classification
+   ├── WangchanBERTa Fine-tuning
+   ├── Thai Language Preprocessing
+   └── Confidence Thresholds
+
+3. Predictive Analytics
+   ├── Churn Prediction (GradientBoosting)
+   ├── Customer Segmentation (K-Means RFM)
+   └── LTV Prediction (BG/NBD)
+
+4. A/B Testing
+   ├── Thompson Sampling Bandit
+   ├── Bayesian Early Stopping
+   └── Consistent Hashing for User Assignment
+
+5. Federated Learning
+   ├── FedAvg Algorithm
+   ├── Differential Privacy
+   └── Privacy-Preserving Training
+
+6. Model Governance
+   ├── MLflow Model Registry
+   ├── Bias Detection (Demographic Parity)
+   ├── Model Cards (Transparency)
+   └── Audit Trail (Compliance)
+```
+
+### Production Checklist
+
+```yaml
+# ML Production Readiness Checklist
+
+model_quality:
+  - [ ] Accuracy > 85% บน test set
+  - [ ] P95 latency < 100ms
+  - [ ] Bias audit ผ่าน (disparity < 10%)
+  - [ ] Robustness test (adversarial inputs)
+
+infrastructure:
+  - [ ] Model served ด้วย FastAPI/TorchServe
+  - [ ] Auto-scaling ตาม load
+  - [ ] Model versioning ใน MLflow Registry
+  - [ ] A/B Testing framework พร้อม
+
+monitoring:
+  - [ ] Prometheus metrics ครบ
+  - [ ] Data drift detection active
+  - [ ] Model performance dashboard
+  - [ ] Alerting rules configured
+
+compliance:
+  - [ ] Data consent recorded
+  - [ ] PII anonymized
+  - [ ] Model card เขียนแล้ว
+  - [ ] PDPA audit trail complete
+  - [ ] Retrain schedule defined
+```
+
+### เครื่องมือและ Library ที่ใช้
+
+| เครื่องมือ | Version | วัตถุประสงค์ |
+|-----------|---------|------------|
+| scikit-learn | 1.3+ | ML Algorithms |
+| PyTorch | 2.0+ | Deep Learning |
+| transformers | 4.35+ | WangchanBERTa |
+| MLflow | 2.8+ | Experiment Tracking |
+| sentence-transformers | 2.2+ | Thai Embeddings |
+| lightfm | 1.17 | Collaborative Filtering |
+| lifetimes | 0.11 | LTV Prediction |
+| SHAP | 0.42+ | Model Explainability |
+| Redis | 7.0+ | Feature Cache |
+| Prometheus | 2.47+ | Metrics |
+
