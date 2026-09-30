@@ -1401,6 +1401,343 @@ module.exports = app;
 
 ---
 
+## 10. PagerDuty Integration
+
+### 10.1 PagerDuty AlertManager Config
+
+```yaml
+# monitoring/alertmanager-pagerduty.yml
+receivers:
+  - name: 'pagerduty-critical'
+    pagerduty_configs:
+      - routing_key: '${PAGERDUTY_INTEGRATION_KEY}'
+        description: '{{ template "pagerduty.default.description" . }}'
+        severity: '{{ if eq .CommonLabels.severity "critical" }}critical{{ else }}warning{{ end }}'
+        details:
+          firing: '{{ .Alerts.Firing | len }}'
+          resolved: '{{ .Alerts.Resolved | len }}'
+          alertname: '{{ .CommonLabels.alertname }}'
+          service: '{{ .CommonLabels.service }}'
+          environment: '{{ .CommonLabels.environment }}'
+        links:
+          - href: '{{ (index .Alerts 0).GeneratorURL }}'
+            text: 'View in Prometheus'
+          - href: 'https://grafana.your-company.com/d/linebot-prod'
+            text: 'View in Grafana'
+        client: 'LINE Bot AlertManager'
+        client_url: 'https://alertmanager.your-company.com'
+```
+
+### 10.2 OpsGenie Integration
+
+```yaml
+# monitoring/alertmanager-opsgenie.yml
+receivers:
+  - name: 'opsgenie-critical'
+    opsgenie_configs:
+      - api_key: '${OPSGENIE_API_KEY}'
+        api_url: 'https://api.opsgenie.com/'
+        message: '{{ .CommonLabels.alertname }}'
+        description: '{{ .CommonAnnotations.description }}'
+        priority: '{{ if eq .CommonLabels.severity "critical" }}P1{{ else if eq .CommonLabels.severity "warning" }}P2{{ else }}P3{{ end }}'
+        tags: ['linebot', 'production', '{{ .CommonLabels.severity }}']
+        details:
+          environment: 'production'
+          service: 'linebot'
+          runbook: '{{ .CommonAnnotations.runbook }}'
+        responders:
+          - name: 'linebot-oncall'
+            type: 'team'
+```
+
+---
+
+## 11. Dashboard Templates ขั้นสูง
+
+### 11.1 Grafana Provisioning
+
+```yaml
+# monitoring/grafana/datasources/prometheus.yaml
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    version: 1
+    editable: false
+    jsonData:
+      timeInterval: "15s"
+      httpMethod: POST
+      
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    version: 1
+    editable: false
+```
+
+```yaml
+# monitoring/grafana/dashboards/linebot-dashboard.yaml
+apiVersion: 1
+
+providers:
+  - name: 'LINE Bot Dashboards'
+    orgId: 1
+    folder: 'LINE Bot'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+```
+
+### 11.2 Key Dashboard Panels
+
+```javascript
+// monitoring/grafana/dashboard-config.js
+// Configuration สำหรับ Grafana Dashboard panels
+
+const DASHBOARD_PANELS = [
+  // Row 1: Overview
+  {
+    title: "Bot Status",
+    type: "stat",
+    query: "up{job='linebot'}",
+    thresholds: [
+      { color: "red", value: 0 },
+      { color: "green", value: 1 }
+    ],
+    mappings: [
+      { value: "0", text: "DOWN" },
+      { value: "1", text: "UP" }
+    ]
+  },
+  {
+    title: "Messages Today",
+    type: "stat",
+    query: "increase(linebot_messages_total[24h])",
+    colorMode: "value"
+  },
+  {
+    title: "Error Rate (5m)",
+    type: "gauge",
+    query: "rate(linebot_errors_total[5m]) / rate(linebot_messages_total[5m]) * 100",
+    min: 0,
+    max: 100,
+    unit: "percent",
+    thresholds: [
+      { color: "green", value: 0 },
+      { color: "yellow", value: 1 },
+      { color: "red", value: 10 }
+    ]
+  },
+  
+  // Row 2: Throughput
+  {
+    title: "Messages per Minute",
+    type: "timeseries",
+    query: "rate(linebot_messages_total[1m]) * 60",
+    legend: "{{event_type}}"
+  },
+  {
+    title: "Webhook Processing Time (P95)",
+    type: "timeseries",
+    query: "histogram_quantile(0.95, rate(linebot_webhook_duration_seconds_bucket[5m]))",
+    unit: "s"
+  },
+  
+  // Row 3: System Health
+  {
+    title: "CPU Usage",
+    type: "timeseries",
+    query: "rate(process_cpu_seconds_total{job='linebot'}[5m]) * 100",
+    unit: "percent"
+  },
+  {
+    title: "Memory Usage",
+    type: "timeseries",
+    query: "process_resident_memory_bytes{job='linebot'} / 1024 / 1024",
+    unit: "megabytes"
+  },
+  
+  // Row 4: LINE API
+  {
+    title: "LINE API Calls",
+    type: "timeseries",
+    query: "rate(linebot_api_calls_total[5m])",
+    legend: "{{endpoint}} {{status_code}}"
+  },
+  {
+    title: "API Quota Progress",
+    type: "bargauge",
+    query: "linebot_api_quota_used",
+    min: 0,
+    max: 1000,
+    thresholds: [
+      { color: "green", value: 0 },
+      { color: "yellow", value: 800 },
+      { color: "red", value: 950 }
+    ]
+  }
+];
+
+module.exports = DASHBOARD_PANELS;
+```
+
+---
+
+## 12. Uptime Monitoring
+
+### 12.1 External Uptime Monitoring
+
+```javascript
+// scripts/uptimeMonitor.js
+// สำหรับรัน uptime check จาก external เพื่อ monitor end-to-end
+
+const https = require('https');
+
+const ENDPOINTS = [
+  {
+    url: 'https://bot.your-company.com/health',
+    name: 'Health Check',
+    expectedStatus: 200,
+    timeout: 5000
+  },
+  {
+    url: 'https://bot.your-company.com/ready',
+    name: 'Readiness Check',
+    expectedStatus: 200,
+    timeout: 5000
+  }
+];
+
+async function checkEndpoint(endpoint) {
+  const startTime = Date.now();
+  
+  return new Promise((resolve) => {
+    const req = https.get(endpoint.url, { timeout: endpoint.timeout }, (res) => {
+      const duration = Date.now() - startTime;
+      
+      resolve({
+        name: endpoint.name,
+        url: endpoint.url,
+        status: res.statusCode,
+        duration,
+        success: res.statusCode === endpoint.expectedStatus
+      });
+    });
+    
+    req.on('error', (err) => {
+      resolve({
+        name: endpoint.name,
+        url: endpoint.url,
+        status: 0,
+        duration: Date.now() - startTime,
+        success: false,
+        error: err.message
+      });
+    });
+    
+    req.on('timeout', () => {
+      req.destroy();
+      resolve({
+        name: endpoint.name,
+        url: endpoint.url,
+        status: 0,
+        duration: endpoint.timeout,
+        success: false,
+        error: 'timeout'
+      });
+    });
+  });
+}
+
+async function runUptimeCheck() {
+  const results = await Promise.all(
+    ENDPOINTS.map(checkEndpoint)
+  );
+  
+  const allHealthy = results.every(r => r.success);
+  
+  if (!allHealthy) {
+    const failedEndpoints = results.filter(r => !r.success);
+    console.error('UPTIME CHECK FAILED:', JSON.stringify(failedEndpoints));
+    
+    // ส่ง alert
+    process.exit(1);
+  } else {
+    console.log('All endpoints healthy:', results.map(r => 
+      `${r.name}: ${r.duration}ms`
+    ).join(', '));
+  }
+}
+
+runUptimeCheck();
+```
+
+### 12.2 Synthetic Monitoring
+
+```javascript
+// tests/synthetic/webhookSynthetic.test.js
+// ทดสอบ webhook แบบ end-to-end จาก external
+
+const axios = require('axios');
+const crypto = require('crypto');
+
+describe('Synthetic Webhook Tests', () => {
+  const WEBHOOK_URL = process.env.WEBHOOK_URL || 'https://bot.your-company.com/webhook';
+  const CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
+  
+  function createSignature(body) {
+    return crypto
+      .createHmac('SHA256', CHANNEL_SECRET)
+      .update(body)
+      .digest('base64');
+  }
+  
+  test('webhook responds within 3 seconds', async () => {
+    const body = JSON.stringify({ events: [] });
+    const signature = createSignature(body);
+    
+    const startTime = Date.now();
+    
+    const response = await axios.post(WEBHOOK_URL, body, {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Line-Signature': signature
+      },
+      timeout: 5000
+    });
+    
+    const duration = Date.now() - startTime;
+    
+    expect(response.status).toBe(200);
+    expect(duration).toBeLessThan(3000);
+  }, 10000);
+  
+  test('webhook rejects invalid signature', async () => {
+    try {
+      await axios.post(WEBHOOK_URL, JSON.stringify({ events: [] }), {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Line-Signature': 'invalidsignature'
+        }
+      });
+      fail('Should have thrown 401');
+    } catch (err) {
+      expect(err.response.status).toBe(401);
+    }
+  });
+});
+```
+
+---
+
 ## สรุปบทที่ 78
 
 ### Monitoring Checklist
@@ -1419,8 +1756,30 @@ Production Monitoring Checklist:
 │  ✅ SLA monitoring รายเดือน                                  │
 │  ✅ Health check endpoints พร้อมใช้                          │
 │  ✅ Uptime monitoring (external)                             │
+│  ✅ Synthetic tests รัน end-to-end ทุก 5 นาที               │
 │                                                               │
 └──────────────────────────────────────────────────────────────┘
+```
+
+### Quick Reference Commands
+
+```bash
+# ดู Prometheus targets
+curl http://localhost:9090/api/v1/targets | jq '.data.activeTargets[] | {job: .labels.job, health: .health}'
+
+# Query metrics ด้วย PromQL
+curl 'http://localhost:9090/api/v1/query?query=rate(linebot_messages_total[5m])' | jq '.data.result'
+
+# ดู active alerts
+curl http://localhost:9090/api/v1/alerts | jq '.data.alerts[] | {name: .labels.alertname, state: .state}'
+
+# ทดสอบ AlertManager routing
+curl -X POST http://localhost:9093/api/v2/alerts \
+  -H "Content-Type: application/json" \
+  -d '[{
+    "labels": {"alertname": "TestAlert", "severity": "warning"},
+    "annotations": {"description": "Test alert from curl"}
+  }]'
 ```
 
 **ต่อไป**: [Part 79 - CI/CD Pipeline](./part-079-cicd-pipeline.md)
