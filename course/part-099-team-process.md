@@ -1,2135 +1,1383 @@
-# Part 99: Team Structure & Development Process สำหรับ LINE Bot
+# Part 99: Team Structure และ Process สำหรับ LINE Bot Development
 
-## บทนำ: ทำไมต้องมี Process ที่ดี?
+## บทนำ
 
-การพัฒนา LINE Bot ในระดับ Production ไม่ใช่แค่การเขียนโค้ดคนเดียว แต่ต้องการทีมงานที่มีความเชี่ยวชาญหลากหลาย กระบวนการทำงานที่ชัดเจน และวัฒนธรรมองค์กรที่เอื้อต่อการพัฒนา บทนี้จะครอบคลุมทุกแง่มุมของการสร้างทีมและกระบวนการทำงานที่มีประสิทธิภาพ
-
-```
-                    LINE OA Team Structure
-    ┌─────────────────────────────────────────────────┐
-    │                  Product Owner                   │
-    │              (LINE OA Manager)                   │
-    └─────────────────────┬───────────────────────────┘
-                          │
-        ┌─────────────────┼─────────────────┐
-        │                 │                 │
-        ▼                 ▼                 ▼
-   ┌─────────┐      ┌──────────┐      ┌──────────┐
-   │  Tech   │      │  Design  │      │  Data    │
-   │  Lead   │      │  Lead    │      │  Lead    │
-   └────┬────┘      └────┬─────┘      └────┬─────┘
-        │                │                 │
-   ┌────┴────┐      ┌────┴────┐      ┌────┴─────┐
-   │Backend  │      │UX/UI    │      │Analytics │
-   │Frontend │      │Designer │      │Engineer  │
-   │DevOps   │      │         │      │          │
-   │QA       │      │         │      │          │
-   └─────────┘      └─────────┘      └──────────┘
-```
+การพัฒนา LINE Bot ในระดับ Production ต้องการ team ที่มีโครงสร้างชัดเจน process ที่ดี และ culture ที่เหมาะสม บทนี้ครอบคลุมทุกด้านของการบริหาร team LINE Bot ตั้งแต่การสรรหาบุคลากรจนถึง incident management
 
 ---
 
-## 1. โครงสร้างทีมและบทบาทหน้าที่
+## 1. Team Structure สำหรับ LINE Bot
 
-### 1.1 LINE OA Manager (ผู้จัดการ LINE OA)
+### 1.1 โครงสร้าง Team ตามขนาดธุรกิจ
 
-LINE OA Manager คือสะพานเชื่อมระหว่างธุรกิจและเทคโนโลยี มีหน้าที่กำหนดทิศทางและวัตถุประสงค์ของ LINE OA
+#### Startup (1-3 คน)
+```
+Tech Lead / Full-Stack Developer
+├── Backend + LINE Bot API
+├── LIFF Frontend
+├── DevOps (basic)
+└── Analytics (basic)
 
-**ความรับผิดชอบหลัก:**
-
-```markdown
-## LINE OA Manager - Job Description
-
-### หน้าที่และความรับผิดชอบ
-
-1. **กลยุทธ์และวิสัยทัศน์**
-   - กำหนด Product Roadmap ของ LINE OA
-   - วิเคราะห์ตลาดและคู่แข่ง
-   - กำหนด KPI และ OKR สำหรับทีม
-   - ประสานงานกับผู้บริหารระดับสูง
-
-2. **การจัดการ Content**
-   - วางแผน Content Calendar
-   - อนุมัติ Rich Menu และ Broadcast
-   - ดูแลโทนและ Brand Voice
-   - วิเคราะห์ประสิทธิภาพ Content
-
-3. **การบริหารความสัมพันธ์**
-   - จัดการความสัมพันธ์กับ LINE Thailand
-   - ประสานงานกับทีม Marketing
-   - ดูแลการร้องเรียนจากลูกค้าในระดับ Escalation
-
-4. **Budget Management**
-   - จัดสรรงบประมาณสำหรับ LINE Messaging API
-   - ติดตาม ROI ของ LINE OA
-   - วางแผนการลงทุนในเทคโนโลยีใหม่
-
-### ทักษะที่จำเป็น
-- เข้าใจ LINE Ecosystem อย่างลึกซึ้ง
-- มีประสบการณ์ด้าน Digital Marketing
-- สามารถวิเคราะห์ข้อมูลได้
-- มีทักษะการสื่อสารที่ดี
-- เข้าใจ Technical concepts พื้นฐาน
-
-### KPI
-- จำนวนผู้ติดตาม LINE OA (Monthly Growth Rate)
-- อัตราการเปิดอ่าน Broadcast
-- Customer Satisfaction Score (CSAT)
-- Revenue Generated from LINE OA
-- Bot Automation Rate
+ความรับผิดชอบ:
+- พัฒนาและ maintain ทุกส่วน
+- ตอบสนอง incidents
+- วางแผน roadmap
 ```
 
-### 1.2 Bot Developer (นักพัฒนา Bot)
+#### SME (5-10 คน)
+```
+Engineering Manager
+├── Backend Team (2-3 คน)
+│   ├── Senior Backend Developer
+│   └── Backend Developer x 1-2
+├── Frontend/LIFF Team (1-2 คน)
+│   └── Frontend Developer
+├── DevOps/Platform (1 คน)
+│   └── DevOps Engineer
+└── QA (1 คน)
+    └── QA Engineer
+```
 
-```markdown
-## Bot Developer Roles
+#### Enterprise (10+ คน)
+```
+Head of Engineering
+├── Platform Team (3-4 คน)
+│   ├── Platform Lead
+│   ├── DevOps Engineer x 2
+│   └── Security Engineer
+├── LINE Bot Team (4-5 คน)
+│   ├── Tech Lead
+│   ├── Senior Backend Developer x 2
+│   └── Backend Developer
+├── LIFF/Frontend Team (2-3 คน)
+│   ├── Frontend Lead
+│   └── Frontend Developer x 1-2
+├── Data Team (2-3 คน)
+│   ├── Data Engineer
+│   └── Data Analyst
+└── QA Team (2 คน)
+    ├── QA Lead
+    └── QA Engineer
+```
 
-### 1. Backend Bot Developer
+### 1.2 Roles และ Responsibilities
 
-**ความรับผิดชอบ:**
-- พัฒนา Webhook Handler
-- ออกแบบและพัฒนา Business Logic
-- ผสานรวมกับ LINE Messaging API
-- พัฒนา API endpoints
-- ดูแล Database design
-- Performance optimization
+#### LINE Bot Tech Lead
+```
+ความรับผิดชอบหลัก:
+□ Architecture decisions สำหรับ LINE Bot system
+□ Code review และ technical standards
+□ Mentoring junior developers
+□ Performance optimization
+□ Incident escalation และ resolution
+□ Technical roadmap
 
-**Tech Stack ที่ต้องรู้:**
-- Node.js / Python / Java / Go
-- Express / Fastify / FastAPI
-- PostgreSQL / MySQL / MongoDB
-- Redis / Memcached
+ทักษะที่ต้องการ:
+- LINE Messaging API expertise
+- Node.js / Python backend
+- Database design (PostgreSQL, Redis)
+- Message broker (Kafka/RabbitMQ)
 - Docker / Kubernetes
-- AWS / GCP / Azure
+- Monitoring (Prometheus, Grafana)
 
-**ตัวอย่าง Code ที่ต้องเขียนได้:**
-```typescript
-// Webhook Handler - ต้องเข้าใจและเขียนได้
-import { Client, WebhookEvent, MessageEvent } from '@line/bot-sdk';
-import { injectable, inject } from 'inversify';
-import { MessageProcessor } from './processors/MessageProcessor';
-import { EventRouter } from './routers/EventRouter';
-import { Logger } from './utils/Logger';
-
-@injectable()
-export class WebhookController {
-  constructor(
-    @inject('LineClient') private client: Client,
-    @inject('MessageProcessor') private messageProcessor: MessageProcessor,
-    @inject('EventRouter') private eventRouter: EventRouter,
-    @inject('Logger') private logger: Logger
-  ) {}
-
-  async handleEvents(events: WebhookEvent[]): Promise<void> {
-    const promises = events.map(event => this.handleEvent(event));
-    await Promise.allSettled(promises);
-  }
-
-  private async handleEvent(event: WebhookEvent): Promise<void> {
-    try {
-      await this.eventRouter.route(event);
-    } catch (error) {
-      this.logger.error('Event processing failed', {
-        eventType: event.type,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        userId: 'source' in event ? event.source.userId : undefined
-      });
-      
-      // ส่ง error message กลับถ้าเป็น message event
-      if (event.type === 'message' && 'replyToken' in event) {
-        await this.client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: 'ขออภัย เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง'
-        });
-      }
-    }
-  }
-}
+KPIs:
+- System uptime > 99.9%
+- Mean Time to Recovery < 30 minutes
+- Code coverage > 80%
+- Sprint velocity improvement 10%/quarter
 ```
 
-### 2. Frontend / LIFF Developer
+#### Backend Developer (LINE Bot)
+```
+ความรับผิดชอบหลัก:
+□ พัฒนา webhook handlers
+□ LINE API integration (Push, Reply, Broadcast)
+□ LIFF backend APIs
+□ Database operations
+□ Unit tests
 
-**ความรับผิดชอบ:**
-- พัฒนา LIFF Applications
-- ออกแบบ Rich Menu
-- สร้าง Flex Message Templates
-- Responsive Design
-- Performance optimization
+ทักษะที่ต้องการ:
+- Node.js หรือ Python
+- REST API / GraphQL
+- LINE SDK
+- PostgreSQL / MySQL
+- Redis
+- Git
 
-**Tech Stack ที่ต้องรู้:**
-- React / Vue.js / Next.js
+Level ที่เหมาะสม:
+- Junior: 0-2 ปี experience
+- Mid: 2-5 ปี
+- Senior: 5+ ปี
+```
+
+#### LIFF Frontend Developer
+```
+ความรับผิดชอบหลัก:
+□ พัฒนา LIFF applications
+□ LINE Login integration
+□ Flex Message design
+□ Rich Menu design
+□ UI/UX optimization สำหรับ mobile
+
+ทักษะที่ต้องการ:
+- React.js / Vue.js
 - LIFF SDK
 - TypeScript
-- TailwindCSS / Material-UI
-- Webpack / Vite
-- Jest / Testing Library
+- CSS / Tailwind
+- Design tools (Figma)
 ```
 
-### 1.3 UX/UI Designer
-
-```markdown
-## UX/UI Designer สำหรับ LINE Bot
-
-### บทบาทพิเศษในระบบ LINE
-
-LINE Bot มีข้อจำกัดด้าน UI ที่แตกต่างจาก Web App ทั่วไป Designer ต้องเข้าใจ:
-
-1. **LINE UI Components**
-   - Flex Message layouts
-   - Quick Reply buttons
-   - Rich Menu design
-   - Carousel และ Image Map
-   - LIFF page design
-
-2. **Conversational UX**
-   - การออกแบบ Conversation Flow
-   - Persona ของ Bot
-   - Error messages ที่เป็นมิตร
-   - Onboarding experience
-
-3. **Design System สำหรับ LINE**
-
-```json
-// Design Tokens สำหรับ Flex Message
-{
-  "colors": {
-    "primary": "#06C755",
-    "primaryLight": "#E8FFF1",
-    "secondary": "#00B900",
-    "text": {
-      "primary": "#111111",
-      "secondary": "#555555",
-      "disabled": "#AAAAAA"
-    },
-    "background": {
-      "primary": "#FFFFFF",
-      "secondary": "#F7F7F7"
-    },
-    "semantic": {
-      "success": "#06C755",
-      "warning": "#FF9500",
-      "error": "#FF3B30",
-      "info": "#007AFF"
-    }
-  },
-  "typography": {
-    "sizes": {
-      "xxl": "20px",
-      "xl": "18px",
-      "lg": "16px",
-      "md": "14px",
-      "sm": "12px",
-      "xs": "10px"
-    },
-    "weights": {
-      "bold": "bold",
-      "regular": "regular"
-    }
-  },
-  "spacing": {
-    "xs": "4px",
-    "sm": "8px",
-    "md": "12px",
-    "lg": "16px",
-    "xl": "24px"
-  }
-}
+#### DevOps Engineer
 ```
+ความรับผิดชอบหลัก:
+□ CI/CD pipeline management
+□ Kubernetes cluster management
+□ Monitoring และ alerting setup
+□ Security patching
+□ Performance tuning
+□ On-call rotation
 
-**Deliverables:**
-- Conversation Flow Diagrams
-- Wireframes สำหรับ LIFF pages
-- Flex Message designs (Figma)
-- Rich Menu layouts
-- Design System documentation
-- Usability test results
-```
-
-### 1.4 Data Analyst
-
-```python
-## Data Analyst บน LINE OA
-
-### ความรับผิดชอบ
-# วิเคราะห์ข้อมูลเพื่อปรับปรุง LINE OA performance
-
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-class LineOAAnalytics:
-    """
-    Class สำหรับวิเคราะห์ข้อมูล LINE OA
-    """
-    
-    def __init__(self, db_connection):
-        self.db = db_connection
-        
-    def calculate_retention_rate(self, cohort_date: datetime) -> pd.DataFrame:
-        """
-        คำนวณ Retention Rate ของผู้ใช้
-        """
-        query = """
-            WITH cohort AS (
-                SELECT 
-                    user_id,
-                    DATE(first_interaction) as cohort_date,
-                    DATE(interaction_date) as activity_date,
-                    DATEDIFF(DATE(interaction_date), DATE(first_interaction)) as days_since_first
-                FROM (
-                    SELECT 
-                        user_id,
-                        interaction_date,
-                        MIN(interaction_date) OVER (PARTITION BY user_id) as first_interaction
-                    FROM user_interactions
-                ) t
-                WHERE DATE(first_interaction) = %s
-            )
-            SELECT 
-                days_since_first,
-                COUNT(DISTINCT user_id) as users,
-                COUNT(DISTINCT user_id) * 100.0 / MAX(COUNT(DISTINCT user_id)) OVER () as retention_rate
-            FROM cohort
-            GROUP BY days_since_first
-            ORDER BY days_since_first
-        """
-        
-        df = pd.read_sql(query, self.db, params=[cohort_date])
-        return df
-    
-    def analyze_message_performance(self, 
-                                     start_date: datetime,
-                                     end_date: datetime) -> dict:
-        """
-        วิเคราะห์ประสิทธิภาพของ Bot Messages
-        """
-        query = """
-            SELECT 
-                message_type,
-                COUNT(*) as total_sent,
-                SUM(CASE WHEN clicked = 1 THEN 1 ELSE 0 END) as clicked,
-                SUM(CASE WHEN converted = 1 THEN 1 ELSE 0 END) as converted,
-                AVG(response_time_ms) as avg_response_time,
-                SUM(CASE WHEN user_left_after = 1 THEN 1 ELSE 0 END) as drop_offs
-            FROM bot_messages
-            WHERE created_at BETWEEN %s AND %s
-            GROUP BY message_type
-        """
-        
-        df = pd.read_sql(query, self.db, params=[start_date, end_date])
-        
-        # คำนวณ Click-Through Rate และ Conversion Rate
-        df['ctr'] = (df['clicked'] / df['total_sent'] * 100).round(2)
-        df['conversion_rate'] = (df['converted'] / df['total_sent'] * 100).round(2)
-        df['drop_off_rate'] = (df['drop_offs'] / df['total_sent'] * 100).round(2)
-        
-        return {
-            'summary': df.to_dict(orient='records'),
-            'best_message_type': df.loc[df['conversion_rate'].idxmax(), 'message_type'],
-            'worst_drop_off': df.loc[df['drop_off_rate'].idxmax(), 'message_type']
-        }
-    
-    def segment_users(self) -> pd.DataFrame:
-        """
-        แบ่ง Segment ผู้ใช้ตาม RFM Model
-        """
-        query = """
-            SELECT 
-                user_id,
-                DATEDIFF(NOW(), MAX(interaction_date)) as recency,
-                COUNT(*) as frequency,
-                SUM(order_amount) as monetary
-            FROM user_interactions
-            LEFT JOIN orders USING(user_id)
-            WHERE interaction_date >= DATE_SUB(NOW(), INTERVAL 90 DAY)
-            GROUP BY user_id
-        """
-        
-        df = pd.read_sql(query, self.db)
-        
-        # สร้าง RFM Score
-        df['R_Score'] = pd.qcut(df['recency'], 5, labels=[5,4,3,2,1]).astype(int)
-        df['F_Score'] = pd.qcut(df['frequency'].rank(method='first'), 5, labels=[1,2,3,4,5]).astype(int)
-        df['M_Score'] = pd.qcut(df['monetary'].rank(method='first'), 5, labels=[1,2,3,4,5]).astype(int)
-        
-        df['RFM_Score'] = df['R_Score'].astype(str) + df['F_Score'].astype(str) + df['M_Score'].astype(str)
-        
-        # กำหนด Segment
-        def assign_segment(row):
-            rfm = row['RFM_Score']
-            r, f, m = int(rfm[0]), int(rfm[1]), int(rfm[2])
-            
-            if r >= 4 and f >= 4 and m >= 4:
-                return 'Champions'
-            elif r >= 3 and f >= 3:
-                return 'Loyal Customers'
-            elif r >= 4 and f <= 2:
-                return 'New Customers'
-            elif r <= 2 and f >= 3:
-                return 'At Risk'
-            elif r <= 2 and f <= 2:
-                return 'Lost Customers'
-            else:
-                return 'Potential'
-        
-        df['Segment'] = df.apply(assign_segment, axis=1)
-        
-        return df
-
-### KPI ที่ Data Analyst ต้องติดตาม
-# - DAU/MAU (Daily/Monthly Active Users)
-# - Message Open Rate
-# - Click-Through Rate (CTR)
-# - Conversion Rate
-# - Customer Acquisition Cost (CAC)
-# - Customer Lifetime Value (CLV)
-# - Churn Rate
-# - Net Promoter Score (NPS)
-```
-
-### 1.5 DevOps Engineer
-
-```yaml
-## DevOps Engineer สำหรับ LINE Bot
-
-# CI/CD Pipeline Configuration
-name: LINE Bot CI/CD Pipeline
-
-on:
-  push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main]
-
-jobs:
-  # Stage 1: Code Quality
-  quality-check:
-    name: Code Quality Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '20'
-          cache: 'npm'
-      
-      - name: Install dependencies
-        run: npm ci
-      
-      - name: Run ESLint
-        run: npm run lint
-      
-      - name: Run TypeScript check
-        run: npm run type-check
-      
-      - name: Run Tests
-        run: npm run test:coverage
-      
-      - name: SonarQube Scan
-        uses: SonarSource/sonarcloud-github-action@master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
-  # Stage 2: Security Scan
-  security-scan:
-    name: Security Vulnerability Scan
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Run npm audit
-        run: npm audit --audit-level=high
-      
-      - name: Run Snyk
-        uses: snyk/actions/node@master
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-      
-      - name: Trivy container scan
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'line-bot:latest'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-
-  # Stage 3: Build
-  build:
-    name: Build Docker Image
-    needs: [quality-check, security-scan]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-      
-      - name: Login to Container Registry
-        uses: docker/login-action@v2
-        with:
-          registry: ${{ secrets.REGISTRY_URL }}
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
-      
-      - name: Build and push
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ secrets.REGISTRY_URL }}/line-bot:latest
-            ${{ secrets.REGISTRY_URL }}/line-bot:${{ github.sha }}
-          cache-from: type=registry,ref=${{ secrets.REGISTRY_URL }}/line-bot:buildcache
-          cache-to: type=registry,ref=${{ secrets.REGISTRY_URL }}/line-bot:buildcache,mode=max
-
-  # Stage 4: Deploy to Staging
-  deploy-staging:
-    name: Deploy to Staging
-    needs: build
-    runs-on: ubuntu-latest
-    environment: staging
-    steps:
-      - name: Deploy to Kubernetes (Staging)
-        uses: azure/k8s-deploy@v1
-        with:
-          namespace: line-bot-staging
-          manifests: |
-            k8s/staging/deployment.yaml
-            k8s/staging/service.yaml
-          images: |
-            ${{ secrets.REGISTRY_URL }}/line-bot:${{ github.sha }}
-      
-      - name: Run Smoke Tests
-        run: |
-          sleep 30
-          npm run test:smoke -- --env=staging
-
-  # Stage 5: Deploy to Production (manual approval)
-  deploy-production:
-    name: Deploy to Production
-    needs: deploy-staging
-    runs-on: ubuntu-latest
-    environment:
-      name: production
-      url: https://api.example.com
-    steps:
-      - name: Deploy to Kubernetes (Production)
-        uses: azure/k8s-deploy@v1
-        with:
-          namespace: line-bot-production
-          manifests: |
-            k8s/production/deployment.yaml
-            k8s/production/service.yaml
-          images: |
-            ${{ secrets.REGISTRY_URL }}/line-bot:${{ github.sha }}
-          strategy: canary
-          percentage: 10
-```
-
-### 1.6 QA Engineer
-
-```typescript
-## QA Engineer สำหรับ LINE Bot
-
-### Testing Strategy
-
-// Test Pyramid สำหรับ LINE Bot
-/*
-         /\
-        /  \
-       / E2E \        <- น้อยที่สุด (5-10%)
-      /________\      Playwright / Cypress
-     /          \
-    / Integration \   <- ปานกลาง (20-30%)
-   /______________\   Supertest / Jest
-  /                \
- /   Unit Tests     \ <- มากที่สุด (60-70%)
-/____________________\ Jest / Mocha
-*/
-
-// ตัวอย่าง Unit Test
-import { describe, it, expect, beforeEach, jest } from '@jest/globals';
-import { IntentClassifier } from '../src/services/IntentClassifier';
-import { UserContext } from '../src/types';
-
-describe('IntentClassifier', () => {
-  let classifier: IntentClassifier;
-  
-  beforeEach(() => {
-    classifier = new IntentClassifier();
-  });
-  
-  describe('classify', () => {
-    it('should classify greeting intent correctly', async () => {
-      const messages = ['สวัสดี', 'หวัดดี', 'ดีครับ', 'hello', 'hi'];
-      
-      for (const message of messages) {
-        const result = await classifier.classify(message);
-        expect(result.intent).toBe('greeting');
-        expect(result.confidence).toBeGreaterThan(0.8);
-      }
-    });
-    
-    it('should classify order intent with product name', async () => {
-      const result = await classifier.classify('ขอสั่งน้ำแดง 2 แก้ว');
-      
-      expect(result.intent).toBe('order');
-      expect(result.entities).toMatchObject({
-        product: 'น้ำแดง',
-        quantity: 2
-      });
-    });
-    
-    it('should return fallback for unknown intent', async () => {
-      const result = await classifier.classify('xxxxxxx gibberish text xxxxx');
-      
-      expect(result.intent).toBe('unknown');
-      expect(result.confidence).toBeLessThan(0.5);
-    });
-  });
-});
-
-// ตัวอย่าง Integration Test
-describe('Webhook Handler Integration', () => {
-  let app: Express;
-  let lineClientMock: jest.MockedObject<Client>;
-  
-  beforeEach(() => {
-    lineClientMock = createMockLineClient();
-    app = createApp({ lineClient: lineClientMock });
-  });
-  
-  it('should handle text message and reply', async () => {
-    const event = createMockMessageEvent({
-      type: 'text',
-      text: 'สั่งกาแฟ'
-    });
-    
-    const response = await request(app)
-      .post('/webhook')
-      .set('x-line-signature', generateSignature(event))
-      .send({ events: [event] });
-    
-    expect(response.status).toBe(200);
-    expect(lineClientMock.replyMessage).toHaveBeenCalledWith(
-      event.replyToken,
-      expect.objectContaining({
-        type: 'text',
-        text: expect.stringContaining('กาแฟ')
-      })
-    );
-  });
-});
-
-// ตัวอย่าง E2E Test
-describe('LINE Bot E2E Tests', () => {
-  it('should complete order flow from start to finish', async () => {
-    const testUser = await createTestLineUser();
-    
-    // Step 1: Send greeting
-    await testUser.sendMessage('สวัสดี');
-    const greeting = await testUser.waitForResponse();
-    expect(greeting.text).toContain('สวัสดี');
-    
-    // Step 2: View menu
-    await testUser.tapButton('ดูเมนู');
-    const menu = await testUser.waitForResponse();
-    expect(menu.type).toBe('flex');
-    
-    // Step 3: Add to cart
-    await testUser.tapButton('เพิ่มใส่ตะกร้า');
-    const cartConfirm = await testUser.waitForResponse();
-    expect(cartConfirm.text).toContain('เพิ่มแล้ว');
-    
-    // Step 4: Checkout
-    await testUser.sendMessage('ชำระเงิน');
-    const payment = await testUser.waitForResponse();
-    expect(payment.type).toBe('flex');
-    expect(payment.altText).toContain('ชำระเงิน');
-    
-    // Verify order in database
-    const order = await db.findLatestOrderByUserId(testUser.userId);
-    expect(order.status).toBe('pending_payment');
-  });
-});
+ทักษะที่ต้องการ:
+- Docker / Kubernetes
+- Terraform / Ansible
+- AWS / GCP
+- CI/CD (GitHub Actions, GitLab CI)
+- Monitoring (Prometheus, Grafana, ELK)
+- Security (WAF, SAST, DAST)
 ```
 
 ---
 
 ## 2. Development Workflow
 
-### 2.1 Git Flow vs Trunk-Based Development
+### 2.1 Git Flow สำหรับ LINE Bot
 
 ```
-Git Flow Model:
-═══════════════
+Branch Strategy:
 
-main ──────────────────────────────────────────────────► (Production)
-       │                          ▲
-       │                          │ merge (release)
-       ▼                          │
-develop ──────────────────────────────────────────────►
-       │          ▲       │                ▲
-       │ branch   │merge  │ branch         │ merge
-       ▼          │       ▼                │
-  feature/xxx ────┘   release/1.2.0 ───────┘
-                       │
-                    hotfix ──► main (emergency fix)
+main (production)
+  └── release/v1.2.0
+        └── develop
+              ├── feature/new-order-flex-message
+              ├── feature/line-pay-integration
+              └── bugfix/webhook-timeout-fix
 
+Branch Naming Convention:
+- feature/[ticket-id]-[short-description]
+- bugfix/[ticket-id]-[short-description]
+- hotfix/[ticket-id]-[short-description]
+- release/v[major].[minor].[patch]
+- chore/[description]
 
-Trunk-Based Development Model:
-════════════════════════════════
-
-main/trunk ────────────────────────────────────────────► (Always deployable)
-              │   ▲   │    ▲    │   ▲
-   short-lived│   │   │    │    │   │
-   branches   ▼   │   ▼    │    ▼   │
-         feat-a ──┘  feat-b ──┘ feat-c ──┘
-         (< 2 days)
+ตัวอย่าง:
+- feature/LINE-123-add-order-tracking
+- bugfix/LINE-456-fix-reply-token-expired
+- hotfix/LINE-789-critical-webhook-failure
 ```
-
-**เมื่อไหร่ใช้อะไร:**
-
-| เงื่อนไข | แนะนำ |
-|---------|-------|
-| ทีมขนาดเล็ก (<5 คน) | Trunk-Based |
-| Deployment บ่อย (หลายครั้ง/วัน) | Trunk-Based |
-| ทีมใหญ่ หลาย Feature พร้อมกัน | Git Flow |
-| มี Release Cycle ที่ชัดเจน | Git Flow |
-| ต้องการ Hotfix ฉุกเฉิน | Git Flow |
-
-### 2.2 Branch Naming Conventions
 
 ```bash
-# Convention: <type>/<ticket-id>/<short-description>
-# ตัวอย่าง Branch Names
+#!/bin/bash
+# scripts/git-workflow.sh
 
-# Feature branches
-git checkout -b feature/LINE-123/add-flex-message-template
-git checkout -b feature/LINE-456/implement-payment-flow
-git checkout -b feature/LINE-789/user-segmentation
-
-# Bug fix branches
-git checkout -b fix/LINE-234/webhook-signature-validation
-git checkout -b fix/LINE-567/message-encoding-thai-chars
-git checkout -b hotfix/LINE-890/production-crash-null-pointer
-
-# Refactoring
-git checkout -b refactor/LINE-111/extract-message-processor
-git checkout -b refactor/LINE-222/optimize-database-queries
-
-# Documentation
-git checkout -b docs/LINE-333/update-api-documentation
-
-# Chore/Infrastructure
-git checkout -b chore/LINE-444/upgrade-dependencies
-git checkout -b chore/LINE-555/update-docker-base-image
-
-# Release
-git checkout -b release/v2.3.0
-git checkout -b release/v2.3.1-hotfix
-
-# Validation Script
-validate_branch_name() {
-  local branch_name="$1"
-  local pattern="^(feature|fix|hotfix|refactor|docs|chore|release)\/[A-Z]+-[0-9]+\/[a-z0-9-]+$|^release\/v[0-9]+\.[0-9]+\.[0-9]+(-[a-z]+)?$"
+# สร้าง feature branch
+git_start_feature() {
+  TICKET=$1
+  DESCRIPTION=$2
   
-  if [[ $branch_name =~ $pattern ]]; then
-    echo "✓ Branch name is valid: $branch_name"
-    return 0
-  else
-    echo "✗ Invalid branch name: $branch_name"
-    echo "Format: <type>/<TICKET-ID>/<short-description>"
-    echo "Types: feature, fix, hotfix, refactor, docs, chore, release"
+  if [ -z "$TICKET" ] || [ -z "$DESCRIPTION" ]; then
+    echo "Usage: git_start_feature LINE-123 my-feature-name"
     return 1
   fi
+  
+  git checkout develop
+  git pull origin develop
+  git checkout -b "feature/${TICKET}-${DESCRIPTION}"
+  echo "✅ Feature branch created: feature/${TICKET}-${DESCRIPTION}"
+}
+
+# Finish feature (merge back to develop)
+git_finish_feature() {
+  BRANCH=$(git branch --show-current)
+  
+  # Run tests before merge
+  npm test
+  if [ $? -ne 0 ]; then
+    echo "❌ Tests failed! Fix before merging."
+    return 1
+  fi
+  
+  git checkout develop
+  git pull origin develop
+  git merge --no-ff "$BRANCH" -m "Merge ${BRANCH} into develop"
+  git push origin develop
+  git branch -d "$BRANCH"
+  echo "✅ Feature merged to develop"
+}
+
+# สร้าง release
+git_start_release() {
+  VERSION=$1
+  
+  git checkout develop
+  git pull origin develop
+  git checkout -b "release/v${VERSION}"
+  
+  # อัพเดท version
+  npm version $VERSION --no-git-tag-version
+  git add package.json package-lock.json
+  git commit -m "chore: bump version to ${VERSION}"
+  
+  echo "✅ Release branch created: release/v${VERSION}"
+  echo "ทำ final testing แล้ว merge ไปยัง main"
 }
 ```
 
-### 2.3 Commit Message Convention
+### 2.2 Trunk Based Development
 
-```bash
-# Conventional Commits Format
-# <type>(<scope>): <subject>
-#
-# [optional body]
-#
-# [optional footer]
+```
+สำหรับ team ที่ต้องการ deploy บ่อย:
 
-# ตัวอย่าง Good Commit Messages
+main (production-ready always)
+  ├── feature/xyz (short-lived, max 1-2 days)
+  └── feature/abc
 
-git commit -m "feat(webhook): add signature validation middleware
+Rules:
+1. Branch อายุไม่เกิน 2 วัน
+2. Merge ต้อง pass CI/CD ทั้งหมด
+3. ใช้ Feature Flags สำหรับ incomplete features
+4. Deploy to production อย่างน้อยทุกวัน
 
-Implement HMAC-SHA256 validation for incoming LINE webhooks
-to prevent unauthorized requests.
-
-- Add validateSignature() function
-- Add middleware for Express
-- Write unit tests for edge cases
-
-Closes: LINE-123
-Breaking-change: None"
-
-git commit -m "fix(message): handle Thai character encoding in Flex Message
-
-Thai characters were being corrupted when building Flex Message
-JSON payload. Fixed by explicitly setting UTF-8 encoding.
-
-Fixes: LINE-456"
-
-git commit -m "perf(database): add index for user_id lookup
-
-User profile queries were doing full table scans.
-Added composite index on (user_id, created_at) reducing
-query time from 2000ms to 15ms.
-
-Ticket: LINE-789"
-
-# Commit Types
-# feat:     New feature
-# fix:      Bug fix
-# docs:     Documentation changes
-# style:    Code style (formatting, no logic change)
-# refactor: Code refactoring
-# perf:     Performance improvement
-# test:     Adding/updating tests
-# chore:    Build process, tooling
-# ci:       CI/CD configuration
-# revert:   Reverting previous commit
-
-# Git Hook สำหรับ validate commit message
-cat > .git/hooks/commit-msg << 'EOF'
-#!/bin/bash
-commit_msg=$(cat "$1")
-pattern="^(feat|fix|docs|style|refactor|perf|test|chore|ci|revert)(\(.+\))?: .{1,100}$"
-
-if ! echo "$commit_msg" | grep -qE "$pattern"; then
-  echo "ERROR: Commit message does not follow Conventional Commits format"
-  echo "Format: <type>(<scope>): <subject>"
-  echo "Example: feat(webhook): add signature validation"
-  exit 1
-fi
-EOF
-chmod +x .git/hooks/commit-msg
+Feature Flags:
 ```
 
-### 2.4 Pull Request Template
+```typescript
+// feature-flags/flags.ts
+export const FeatureFlags = {
+  NEW_ORDER_FLOW: process.env.FF_NEW_ORDER_FLOW === 'true',
+  LINE_PAY_V2: process.env.FF_LINE_PAY_V2 === 'true',
+  AI_CHATBOT: process.env.FF_AI_CHATBOT === 'true',
+  SUBSCRIPTION_MESSAGES: process.env.FF_SUBSCRIPTION_MESSAGES === 'true',
+};
 
-```markdown
-# สร้างไฟล์ .github/pull_request_template.md
-
-## Summary
-<!-- อธิบายสั้นๆ ว่า PR นี้ทำอะไร -->
-
-## Motivation & Context
-<!-- ทำไมต้องทำ PR นี้? มี Ticket/Issue ไหนที่เกี่ยวข้อง? -->
-Closes #<!-- Ticket number -->
-
-## Type of Change
-- [ ] Bug fix (non-breaking change that fixes an issue)
-- [ ] New feature (non-breaking change that adds functionality)
-- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
-- [ ] Documentation update
-- [ ] Refactoring (no functional changes)
-- [ ] Performance improvement
-
-## Screenshots / Demo
-<!-- สำหรับ UI changes โปรดแนบ screenshot -->
-| Before | After |
-|--------|-------|
-| <!-- screenshot before --> | <!-- screenshot after --> |
-
-## LINE Bot Specific Checks
-- [ ] Tested on LINE mobile app (iOS)
-- [ ] Tested on LINE mobile app (Android)
-- [ ] Tested with Thai language input
-- [ ] Tested Flex Message renders correctly
-- [ ] Tested Rich Menu if modified
-- [ ] Tested LIFF if modified
-
-## Testing
-- [ ] Unit tests pass (`npm run test`)
-- [ ] Integration tests pass (`npm run test:integration`)
-- [ ] Added new tests for new functionality
-- [ ] No regression in existing tests
-
-## Code Quality
-- [ ] Code follows project style guide
-- [ ] Self-review completed
-- [ ] Comments added for complex logic
-- [ ] No console.log() left in production code
-- [ ] No hardcoded secrets or credentials
-
-## Documentation
-- [ ] API documentation updated (if applicable)
-- [ ] README updated (if applicable)
-- [ ] CHANGELOG updated
-
-## Deployment Notes
-<!-- มี migration, environment variable, หรือ configuration ที่ต้อง update ไหม? -->
-
-## Checklist for Reviewer
-- [ ] Logic is correct
-- [ ] Edge cases handled
-- [ ] Error handling is appropriate
-- [ ] Performance considerations reviewed
-- [ ] Security implications reviewed
+// ใน code
+if (FeatureFlags.NEW_ORDER_FLOW) {
+  return handleNewOrderFlow(event);
+} else {
+  return handleLegacyOrderFlow(event);
+}
 ```
 
 ---
 
 ## 3. Sprint Planning สำหรับ LINE Features
 
-### 3.1 Sprint Structure (2 สัปดาห์)
-
-```
-Sprint Timeline (2 weeks / 10 working days)
-═══════════════════════════════════════════
-
-Day 1 (Monday)
-├── Sprint Planning (3 hours)
-│   ├── Review Sprint Goal
-│   ├── Estimate User Stories (Planning Poker)
-│   ├── Create Sprint Backlog
-│   └── Assign Tasks
-
-Day 2-9 (Daily)
-├── Daily Standup (15 min)
-│   ├── What did you do yesterday?
-│   ├── What will you do today?
-│   └── Any blockers?
-├── Development work
-└── Code Reviews
-
-Day 8 (Thursday of week 2)
-└── Code Freeze / QA Testing begins
-
-Day 9 (Friday of week 2)
-└── Bug fixing from QA
-
-Day 10 (Friday)
-├── Sprint Review / Demo (1 hour)
-├── Retrospective (1 hour)
-└── Sprint Deployment
-```
-
-### 3.2 Story Point Estimation
+### 3.1 Sprint Planning Template
 
 ```markdown
-## Story Point Guide สำหรับ LINE Bot Features
+# Sprint [N] Planning - LINE OA Team
+Date: [DD/MM/YYYY]
+Sprint Duration: 2 weeks ([Start] - [End])
 
-### 1 Point - Simple (1-2 ชั่วโมง)
-- เปลี่ยนข้อความ Static
-- เพิ่ม Quick Reply button ใหม่
-- แก้ไข typo ใน message template
-- อัพเดท Rich Menu text
+## Sprint Goal
+"[เป้าหมายหลักของ sprint นี้ใน 1-2 ประโยค]"
+ตัวอย่าง: "Deploy ระบบ Order Tracking ผ่าน LINE ให้ผู้ใช้ติดตาม status ได้ใน real-time"
 
-### 2 Points - Small (half day)
-- เพิ่ม Flex Message template ใหม่
-- เพิ่ม handler สำหรับ keyword ใหม่
-- อัพเดท API endpoint ง่ายๆ
-- เพิ่ม unit test สำหรับ existing code
+## Team Capacity
+| Member | Days Available | Notes |
+|--------|---------------|-------|
+| สมชาย (TL) | 10 | - |
+| สมหญิง (Dev) | 9 | วันหยุด 1 วัน |
+| สมศักดิ์ (LIFF) | 10 | - |
+| สมพร (DevOps) | 8 | ประชุม 2 วัน |
+| สมใจ (QA) | 10 | - |
 
-### 3 Points - Medium (1 วัน)
-- Feature ใหม่ที่ต้องการ database query
-- Integrate กับ external API
-- สร้าง LIFF หน้าใหม่ simple
-- Implement caching layer
+Total Story Points Capacity: 35-40 points
 
-### 5 Points - Large (2-3 วัน)
-- Feature ซับซ้อนที่ต้องการหลาย components
-- Payment integration
-- User authentication flow
-- Database schema changes
+## Selected Stories
 
-### 8 Points - Extra Large (3-5 วัน)
-- ระบบ Chatbot ใหม่ทั้งหมด
-- Migration ข้อมูลขนาดใหญ่
-- Refactor major component
-- New microservice
+### Must Have (This Sprint)
+| Story | Points | Owner | Dependencies |
+|-------|--------|-------|-------------|
+| LINE-201: Webhook handler for order events | 5 | สมชาย | - |
+| LINE-202: Push notification on status change | 3 | สมชาย | LINE-201 |
+| LINE-203: Order tracking LIFF page | 8 | สมศักดิ์ | LINE-201 |
+| LINE-204: Status change Flex message design | 5 | สมศักดิ์ | - |
+| LINE-205: Integration tests | 5 | สมใจ | LINE-201,202,203 |
 
-### 13 Points - Too Big → Split!
+Subtotal: 26 points
+
+### Nice to Have
+| Story | Points | Owner |
+|-------|--------|-------|
+| LINE-206: Delivery map integration | 8 | สมชาย |
+| LINE-207: SMS fallback notification | 5 | สมหญิง |
+
+### Sprint Risks
+1. LINE API rate limiting during load testing
+2. สมหญิงลางาน 1 วัน
+3. Deploy window ต้องรอ approval จาก Infra
+
+## Definition of Done
+□ Unit tests ผ่าน (coverage > 80%)
+□ Integration tests ผ่าน
+□ Code review โดย 2 คน
+□ Documentation อัพเดท
+□ QA sign-off
+□ Deploy to staging ผ่าน
+□ Performance test ผ่าน (P95 < 500ms)
 ```
 
-### 3.3 Feature Backlog Template
+### 3.2 Story Point Guidelines
 
-```markdown
-## User Story Template
+```
+Story Points สำหรับ LINE Bot Features:
 
-**Title:** [Feature Name]
+1 point: แก้ไข text/copy ใน message template
+2 points: เพิ่ม button ใน Flex message
+3 points: เพิ่ม auto-reply rule ใหม่
+5 points: สร้าง webhook handler ใหม่
+8 points: พัฒนา LIFF page ใหม่
+13 points: Integration กับ external service ใหม่
+21 points: Feature ขนาดใหญ่ (ควรแบ่งย่อย)
 
-**As a** [type of user],
-**I want** [some goal],
-**So that** [some reason/value]
-
----
-**Story:** As a ลูกค้า,
-I want สั่งอาหารผ่าน LINE Bot,
-So that ฉันสามารถสั่งอาหารได้สะดวกโดยไม่ต้องโทรหา
-
-**Acceptance Criteria:**
-Given ฉันเปิด LINE OA ของร้านอาหาร
-When ฉันพิมพ์ "สั่งอาหาร" หรือ กด Quick Reply
-Then ฉันเห็นเมนูอาหารในรูปแบบ Carousel
-
-Given ฉันกดเลือกเมนูอาหาร
-When ฉันกด "เพิ่มใส่ตะกร้า"  
-Then ระบบบันทึกรายการและแสดงจำนวนในตะกร้า
-
-Given ฉันต้องการชำระเงิน
-When ฉันกด "ชำระเงิน"
-Then ฉันเห็น Flex Message สรุปรายการและราคา พร้อม PromptPay QR Code
-
-**Technical Notes:**
-- ใช้ Redis เก็บ shopping cart (TTL 24 ชั่วโมง)
-- Integrate กับ PromptPay API
-- ส่ง notification ให้ ร้านอาหารเมื่อมี order ใหม่
-
-**Story Points:** 8
-**Priority:** High
-**Sprint:** Sprint 5
-**Assigned To:** Backend: @john, Frontend: @jane
-**Dependencies:** Payment gateway API docs
-
-**Definition of Done:**
-- [ ] Unit tests written and passing
-- [ ] Integration tests passing
-- [ ] Tested on LINE mobile
-- [ ] Code reviewed
-- [ ] Documentation updated
-- [ ] QA sign-off received
-- [ ] Deployed to staging
+Poker Planning Sessions:
+- ประชุมทุก Sprint Planning
+- ใช้ Fibonacci sequence: 1, 2, 3, 5, 8, 13, 21
+- ถ้าต่างกันมาก ต้องอธิบายก่อน estimate ใหม่
 ```
 
 ---
 
 ## 4. Code Review Checklist
 
+### 4.1 LINE Bot Code Review Checklist
+
 ```markdown
-# Code Review Checklist - LINE Bot Development
+## Code Review Checklist - LINE Bot
 
-## ✅ General Code Quality
+### General
+- [ ] Code อ่านเข้าใจง่าย มี comments ที่จำเป็น
+- [ ] ไม่มี hardcoded values (ใช้ env vars หรือ config)
+- [ ] Error handling ครอบคลุม
+- [ ] Logging เหมาะสม (ไม่มาก/น้อยเกินไป)
+- [ ] ไม่มี console.log ที่ไม่จำเป็น
 
-### Correctness
-- [ ] Logic ถูกต้องตาม requirements
-- [ ] Edge cases ได้รับการ handle
-- [ ] Error handling เหมาะสม
-- [ ] ไม่มี potential infinite loop หรือ deadlock
+### Security
+- [ ] ไม่มี secrets/credentials ใน code
+- [ ] Validate LINE signature ก่อนประมวลผล
+- [ ] Input validation และ sanitization
+- [ ] ไม่มี SQL injection vulnerabilities
+- [ ] Sensitive data ไม่ถูก log
 
-### Readability
-- [ ] ชื่อ variable/function สื่อความหมายชัดเจน
-- [ ] มี comment สำหรับ complex logic
-- [ ] Function มีขนาดเหมาะสม (< 50 lines)
-- [ ] ไม่มี magic numbers
+### LINE API Specific
+- [ ] ตรวจสอบ replyToken expiry (30 วินาที)
+- [ ] Handle rate limits ด้วย retry logic
+- [ ] Message format ถูกต้องตาม LINE spec
+- [ ] Webhook response ส่งภายใน 200ms
+- [ ] Error messages เหมาะสมสำหรับ users
 
 ### Performance
-- [ ] ไม่มี N+1 query
-- [ ] ใช้ async/await ถูกต้อง
-- [ ] มีการ cache ข้อมูลที่ควร cache
-- [ ] ไม่มี memory leak
+- [ ] ไม่มี N+1 query problems
+- [ ] Database queries ใช้ indexes
+- [ ] Async operations ใช้ Promise.all() เมื่อทำได้
+- [ ] Cache ใช้ที่เหมาะสม
+- [ ] Memory leaks ไม่มี
 
-## ✅ LINE Bot Specific
+### Testing
+- [ ] Unit tests ครอบคลุม business logic
+- [ ] Integration tests สำหรับ LINE API calls
+- [ ] Edge cases ถูก test
+- [ ] Mock LINE API ใน tests อย่างถูกต้อง
 
-### Webhook
-- [ ] Validate LINE signature
-- [ ] Handle ทุก event type ที่อาจเกิดขึ้น
-- [ ] Reply token ถูกใช้ภายใน 60 วินาที
-- [ ] ส่ง 200 OK ก่อนประมวลผล (async)
+### LIFF Specific
+- [ ] LIFF SDK initialized ก่อนใช้งาน
+- [ ] Handle LIFF errors gracefully
+- [ ] Responsive design ทำงานบน mobile
+- [ ] LINE Login flow ถูกต้อง
 
-### Messages
-- [ ] Flex Message JSON valid
-- [ ] Alt text สำหรับ Flex Message
-- [ ] ข้อความภาษาไทยถูกต้อง
-- [ ] ไม่เกิน rate limit (500 messages/second)
-- [ ] ขนาด Flex Message ไม่เกิน limit
+### Documentation
+- [ ] README อัพเดทถ้าจำเป็น
+- [ ] API documentation อัพเดท
+- [ ] CHANGELOG เพิ่ม entry
+```
 
-### LIFF
-- [ ] liff.init() เรียกก่อนใช้งาน
-- [ ] Handle กรณีเปิดนอก LINE
-- [ ] ข้อมูล user ได้จาก LIFF ไม่ใช่ client input
-- [ ] HTTPS เสมอ
+### 4.2 PR Template
 
-## ✅ Security
+```markdown
+<!-- .github/pull_request_template.md -->
+## สรุปการเปลี่ยนแปลง
+[อธิบายสั้นๆ ว่าทำอะไร]
 
-- [ ] ไม่มี hardcoded secrets
-- [ ] Input validation ครบถ้วน
-- [ ] SQL injection prevention (parameterized queries)
-- [ ] ไม่ log ข้อมูล sensitive
-- [ ] CORS configured ถูกต้อง
+## ประเภทการเปลี่ยนแปลง
+- [ ] 🐛 Bug fix
+- [ ] ✨ New feature
+- [ ] 🔨 Refactoring
+- [ ] 📝 Documentation
+- [ ] 🔧 Configuration change
+- [ ] 🚀 Performance improvement
 
-## ✅ Testing
+## Ticket Reference
+LINE-[ticket number]: [link]
 
-- [ ] Unit tests ครอบคลุม happy path
-- [ ] Unit tests ครอบคลุม error cases
-- [ ] Test coverage ≥ 80%
-- [ ] Mock ถูกต้อง (ไม่ call external services ใน unit test)
+## การทดสอบ
+- [ ] Unit tests ผ่าน
+- [ ] Integration tests ผ่าน
+- [ ] Manual testing ใน LINE App
+- [ ] Tested on iOS
+- [ ] Tested on Android
 
-## ✅ Database
+## Screenshots (ถ้ามี UI changes)
+| Before | After |
+|--------|-------|
+| [screenshot] | [screenshot] |
 
-- [ ] Migration script ถูกต้อง
-- [ ] Index เหมาะสม
-- [ ] Transaction ใช้ถูกที่
-- [ ] ไม่มี sensitive data ที่ไม่ encrypt
+## Checklist
+- [ ] Self-review code แล้ว
+- [ ] อัพเดท documentation
+- [ ] ไม่มี breaking changes (หรือระบุ migration guide)
+- [ ] ไม่มี sensitive data ใน code
 
-## Review Sign-off
-
-| Reviewer | Status | Comment |
-|----------|--------|---------|
-| Tech Lead | ⬜ Pending | |
-| Senior Dev | ⬜ Pending | |
-| QA | ⬜ Pending | |
+## Notes for Reviewers
+[สิ่งที่อยากให้ reviewer ดูเป็นพิเศษ]
 ```
 
 ---
 
 ## 5. Documentation Standards
 
-### 5.1 API Documentation Template
+### 5.1 LINE Bot Documentation Structure
+
+```
+docs/
+├── README.md               - Overview และ Quick Start
+├── architecture/
+│   ├── overview.md         - Architecture diagram และ description
+│   ├── database.md         - Database schema
+│   └── kafka-topics.md     - Event topics design
+├── api/
+│   ├── webhook-events.md   - Webhook event types
+│   ├── line-api.md         - LINE API endpoints ที่ใช้
+│   └── internal-api.md     - Internal REST/GraphQL API
+├── development/
+│   ├── setup.md            - Local development setup
+│   ├── testing.md          - Testing guide
+│   └── debugging.md        - Debugging tips
+├── deployment/
+│   ├── staging.md          - Deploy to staging
+│   ├── production.md       - Deploy to production
+│   └── rollback.md         - Rollback procedures
+├── operations/
+│   ├── monitoring.md       - Monitoring setup
+│   ├── alerts.md           - Alert playbooks
+│   └── runbook.md          - Operational runbook
+└── line-specific/
+    ├── flex-messages.md    - Flex message templates
+    ├── rich-menus.md       - Rich menu management
+    └── liff-apps.md        - LIFF app documentation
+```
+
+### 5.2 Webhook Handler Documentation Template
 
 ```typescript
 /**
- * @api {post} /api/messages/broadcast Send Broadcast Message
- * @apiName BroadcastMessage
- * @apiGroup Messages
- * @apiVersion 2.0.0
- *
- * @apiDescription ส่ง Broadcast message ไปยัง followers ทั้งหมด
- * หรือ segment ที่กำหนด
- *
- * @apiHeader {String} Authorization Bearer <access_token>
- * @apiHeader {String} Content-Type application/json
- *
- * @apiParam {Object} message Message object
- * @apiParam {String} message.type Message type (text|flex|image)
- * @apiParam {String} [message.text] Text content (required if type=text)
- * @apiParam {Object} [message.contents] Flex Message contents
- * @apiParam {String[]} [targetSegmentIds] Segment IDs to target
- * @apiParam {Object} [schedule] Scheduling options
- * @apiParam {String} [schedule.sendAt] ISO 8601 datetime to send
- *
- * @apiExample {json} Request Example:
- * {
- *   "message": {
- *     "type": "text",
- *     "text": "สวัสดีครับ! มีโปรโมชั่นพิเศษวันนี้"
- *   },
- *   "targetSegmentIds": ["segment-vip", "segment-active"],
- *   "schedule": {
- *     "sendAt": "2024-12-25T09:00:00+07:00"
- *   }
- * }
- *
- * @apiSuccess {String} broadcastId Broadcast ID
- * @apiSuccess {Number} targetCount Number of recipients
- * @apiSuccess {String} status Status (scheduled|sent)
- * @apiSuccess {String} scheduledAt Scheduled time
- *
- * @apiSuccessExample {json} Success Response:
- * {
- *   "broadcastId": "bc_01234567890",
- *   "targetCount": 5420,
- *   "status": "scheduled",
- *   "scheduledAt": "2024-12-25T09:00:00+07:00"
- * }
- *
- * @apiError (400) InvalidMessage Message format is invalid
- * @apiError (401) Unauthorized Invalid or expired token
- * @apiError (429) RateLimitExceeded Too many requests
- *
- * @apiErrorExample {json} Error Response:
- * {
- *   "error": "INVALID_MESSAGE",
- *   "message": "Message type 'flex' requires 'contents' field",
- *   "code": 400
- * }
+ * Handles incoming LINE follow events
+ * 
+ * @description
+ * เมื่อผู้ใช้ follow LINE OA นี้ handler นี้จะ:
+ * 1. สร้าง/อัพเดท user profile ใน database
+ * 2. ส่ง welcome message
+ * 3. บันทึก analytics event
+ * 4. Trigger onboarding sequence ถ้าเป็น new user
+ * 
+ * @param event - LINE FollowEvent object
+ * @param context - Request context (userId, correlationId)
+ * 
+ * @example
+ * // LINE webhook payload:
+ * // {
+ * //   "type": "follow",
+ * //   "source": { "type": "user", "userId": "U..." },
+ * //   "timestamp": 1234567890
+ * // }
+ * 
+ * @throws {DatabaseError} เมื่อไม่สามารถบันทึกข้อมูลได้
+ * @throws {LineApiError} เมื่อส่ง welcome message ไม่ได้
+ * 
+ * @see {@link https://developers.line.biz/en/reference/messaging-api/#follow-event}
  */
-async function broadcastMessage(req: Request, res: Response): Promise<void> {
-  // implementation
+export async function handleFollowEvent(
+  event: FollowEvent,
+  context: RequestContext
+): Promise<void> {
+  // Implementation
 }
 ```
 
-### 5.2 ADR (Architecture Decision Record)
+### 5.3 Architecture Decision Records (ADR)
 
 ```markdown
-# ADR-001: เลือกใช้ Redis สำหรับ Session Management
+# ADR-001: ใช้ Apache Kafka สำหรับ LINE Event Processing
 
-**Date:** 2024-01-15
-**Status:** Accepted
-**Deciders:** @tech-lead, @backend-dev-1, @backend-dev-2
+Date: 2024-01-15
+Status: Accepted
+Deciders: Tech Lead, Engineering Manager
 
 ## Context
-
-LINE Bot ของเราต้องการ manage conversation state ของผู้ใช้ระหว่าง webhook calls เนื่องจาก HTTP เป็น stateless protocol เราจึงต้องการ external storage
+LINE Bot ของเราต้องการประมวลผล events จาก webhook อย่างน้อย 100 events/second
+และต้องการส่งต่อให้ services อื่นๆ (Analytics, CRM, Notification)
 
 ## Decision
+ใช้ Apache Kafka เป็น event broker
 
-เลือกใช้ Redis เป็น session store
+## Alternatives Considered
 
-## Options Considered
+### Option 1: Direct API Calls (Rejected)
+- ❌ Tight coupling ระหว่าง services
+- ❌ ถ้า service หนึ่งล่ม จะกระทบทั้งหมด
+- ❌ ยาก scale
 
-### Option 1: Redis
-- **Pros:** In-memory (เร็วมาก), support TTL, data structures หลายแบบ, highly available
-- **Cons:** ต้องจ่ายค่า infrastructure, data loss if not configured properly
+### Option 2: RabbitMQ (Rejected)
+- ❌ ไม่มี event replay capability
+- ❌ ไม่เหมาะกับ high-throughput
+- ✅ ง่ายกว่า Kafka
 
-### Option 2: PostgreSQL
-- **Pros:** ACID compliant, ไม่ต้องการ infrastructure เพิ่ม
-- **Cons:** ช้ากว่า Redis 10-100x สำหรับ read/write บ่อยๆ
+### Option 3: AWS SQS/SNS
+- ✅ Managed service
+- ❌ Vendor lock-in
+- ❌ ต้นทุนสูงกว่า
 
-### Option 3: In-memory (Process)
-- **Pros:** ง่ายที่สุด, เร็วที่สุด
-- **Cons:** ไม่รองรับ horizontal scaling, data หายเมื่อ restart
-
-## Reasoning
-
-LINE Bot ต้องการ response time < 100ms เพื่อ reply ก่อน token หมดอายุ
-Redis ให้ latency < 1ms ซึ่งเหมาะสมที่สุด
+### Option 4: Apache Kafka (Chosen)
+- ✅ High throughput (millions/day)
+- ✅ Event replay สำหรับ debugging
+- ✅ Multiple consumer groups
+- ✅ Durable message storage
+- ❌ ซับซ้อนกว่า
+- ❌ ต้องการ expertise
 
 ## Consequences
+- ต้องการ Kafka cluster (3 brokers)
+- Team ต้องเรียน Kafka
+- Latency เพิ่มขึ้นเล็กน้อย (~5ms)
+- ได้ event sourcing capability
 
-**Positive:**
-- Session lookup เร็วมาก
-- รองรับ horizontal scaling
-- TTL management ง่าย
-
-**Negative:**  
-- ต้องจัดการ Redis availability
-- เพิ่ม operational complexity
-- ต้องมี backup strategy
-
-## Implementation Notes
-
-```typescript
-const redisConfig = {
-  host: process.env.REDIS_HOST,
-  port: 6379,
-  password: process.env.REDIS_PASSWORD,
-  keyPrefix: 'linebot:session:',
-  ttl: 3600 // 1 hour
-};
-```
-
-**Reviewed By:** @team-lead
-**Review Date:** 2024-01-16
+## Status Update
+2024-03-01: Implemented และ stable ใน production
 ```
 
 ---
 
-## 6. On-Call Runbook Template
+## 6. On-Call Runbook
+
+### 6.1 On-Call Responsibilities
+
+```
+On-Call Engineer Responsibilities:
+
+Primary On-Call:
+- ตอบสนอง P1 alerts ภายใน 5 นาที
+- ตอบสนอง P2 alerts ภายใน 15 นาที
+- ตอบสนอง P3 alerts ภายใน 1 ชั่วโมง
+- Update status page เมื่อมี incident
+- Escalate ถ้าไม่สามารถแก้ไขได้ใน 30 นาที
+
+Secondary On-Call:
+- Backup สำหรับ Primary
+- ช่วย escalation paths
+- Review postmortems
+
+On-Call Schedule:
+- หมุนเวียนทุกสัปดาห์
+- Handoff ทุกวันจันทร์ 09:00
+- ห้ามมี on-call นานเกิน 2 สัปดาห์ติดต่อกัน
+```
+
+### 6.2 Alert Priority Levels
+
+```yaml
+# alerts/priority-definitions.yml
+
+P1 - Critical (ตอบภายใน 5 นาที):
+  - LINE Webhook endpoint down
+  - Database connection failed
+  - Payment processing failed
+  - Error rate > 10%
+  - Data loss detected
+  actions:
+    - Wake up on-call immediately
+    - Page manager
+    - Start incident bridge
+
+P2 - High (ตอบภายใน 15 นาที):
+  - Response time > 2 seconds (P95)
+  - Error rate 5-10%
+  - Kafka consumer lag > 10,000
+  - Disk usage > 90%
+  - LINE API quota > 90%
+  actions:
+    - Notify on-call
+    - Start investigation
+    - Post in #incidents
+
+P3 - Medium (ตอบภายใน 1 ชั่วโมง):
+  - Response time > 1 second (P95)
+  - Error rate 1-5%
+  - Memory usage > 80%
+  - Kafka consumer lag > 1,000
+  actions:
+    - Notify on-call during business hours
+    - Create ticket
+
+P4 - Low (ตอบใน next business day):
+  - Non-critical service degradation
+  - Warning thresholds hit
+  - Non-impacting anomalies
+```
+
+### 6.3 Runbook Templates
 
 ```markdown
-# LINE Bot On-Call Runbook v2.0
+# Runbook: LINE Webhook Down
 
-## ข้อมูลสำคัญ
+## Symptoms
+- Webhook health check failing
+- LINE messages ไม่ได้รับคำตอบ
+- Error rate spike ใน Grafana
 
-**Service:** LINE OA Bot - [ชื่อธุรกิจ]
-**Production URL:** https://api.example.com
-**Dashboard:** https://grafana.example.com
-**Logs:** https://logs.example.com
-**Runbook Updated:** 2024-01-15
-**Owner:** Platform Team
+## Impact
+- Users ไม่สามารถใช้ LINE Bot ได้
+- Auto-reply ไม่ทำงาน
+- Revenue impact (ถ้า chatbot-driven sales)
 
----
+## Investigation Steps
 
-## On-Call Schedule
-
-| วันที่ | Primary | Secondary |
-|-------|---------|-----------|
-| จ-พ   | @john   | @jane     |
-| พฤ-ศ  | @bob    | @alice    |
-| เสาร์-อาทิตย์ | @charlie | @diana |
-
-## การติดต่อฉุกเฉิน
-
-| Level | ช่องทาง | Response Time |
-|-------|---------|---------------|
-| P1 - Critical | โทรศัพท์ | 15 นาที |
-| P2 - High | LINE Group | 30 นาที |
-| P3 - Medium | Slack | 2 ชั่วโมง |
-| P4 - Low | Jira | Next business day |
-
----
-
-## Incident Response Procedures
-
-### Incident Severity Levels
-
-```
-P1 - Critical (ระดับวิกฤต)
-────────────────────────────
-ลักษณะ: Service down ทั้งหมด, ไม่สามารถ receive webhook ได้
-ผลกระทบ: ลูกค้าทั้งหมดใช้ไม่ได้
-Response Time: 15 นาที
-Action: โทรหา On-Call ทันที, escalate ถึง CTO
-
-P2 - High (ระดับสูง)
-──────────────────────
-ลักษณะ: Feature หลัก broken (Payment, Order)
-ผลกระทบ: ลูกค้าส่วนใหญ่ได้รับผลกระทบ
-Response Time: 30 นาที
-Action: Notify on-call via LINE Group
-
-P3 - Medium (ระดับกลาง)
-──────────────────────────
-ลักษณะ: Feature รองทำงานผิดปกติ
-ผลกระทบ: ลูกค้าส่วนน้อยได้รับผลกระทบ
-Response Time: 2 ชั่วโมง
-Action: Create Jira ticket, fix in next sprint
-
-P4 - Low (ระดับต่ำ)
-──────────────────────
-ลักษณะ: UI bugs, minor issues
-ผลกระทบ: Cosmetic, ไม่กระทบ business
-Response Time: Next business day
-Action: Create Jira ticket
-```
-
-### Incident Response Flow
-
-```
-Alert Triggered
-     │
-     ▼
-Acknowledge Alert (< 5 min)
-     │
-     ▼
-Assess Severity (P1/P2/P3/P4)
-     │
-     ├── P1: ─► Wake CTO + All team + Start War Room
-     │
-     ├── P2: ─► Notify team lead + Start investigation
-     │
-     └── P3/P4: ─► Create ticket + Normal flow
-     
-     │
-     ▼
-Diagnose Problem
-     │
-     ├── Check recent deployments
-     ├── Check error logs
-     ├── Check metrics/dashboards
-     └── Check external dependencies
-     
-     │
-     ▼
-Implement Fix or Rollback
-     │
-     ▼
-Verify Resolution
-     │
-     ▼
-Post-Incident Review (P1/P2)
-     │
-     ▼
-Update Runbook if needed
-```
-
----
-
-## Common Incidents & Resolutions
-
-### 1. Webhook ไม่ได้รับ Events
-
-**Symptoms:**
-- LINE events ไม่เข้าระบบ
-- User ส่งข้อความแต่ Bot ไม่ตอบ
-
-**Diagnostic Steps:**
+### Step 1: Check Application Status
 ```bash
-# Check webhook endpoint health
-curl -X GET https://api.example.com/health
+# ตรวจสอบ pods
+kubectl get pods -n line-bot
 
-# Check recent logs
+# ดู logs
 kubectl logs -n line-bot -l app=webhook-handler --tail=100
 
-# Check error rate
-kubectl top pods -n line-bot
-
-# Verify LINE webhook URL
-# ไปที่ LINE Developer Console และ Verify Webhook
+# ตรวจสอบ errors
+kubectl logs -n line-bot -l app=webhook-handler --tail=100 | grep ERROR
 ```
 
-**Resolution:**
+### Step 2: Check Health Endpoints
 ```bash
-# ถ้า Pod crash
-kubectl rollout restart deployment/line-bot -n line-bot
+# Health check
+curl https://api.yourapp.com/health
 
-# ถ้า Certificate expired
-kubectl describe certificate line-bot-tls -n line-bot
-certbot renew --nginx
-
-# ถ้า Memory/CPU limit
-kubectl describe hpa line-bot-hpa -n line-bot
-kubectl patch hpa line-bot-hpa -n line-bot --patch '{"spec":{"maxReplicas":20}}'
+# LINE webhook endpoint
+curl -X POST https://api.yourapp.com/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"events":[]}'
 ```
 
-### 2. ตอบช้า / Timeout
-
-**Symptoms:**
-- LINE แสดง "ข้อความส่งไม่ได้"
-- Response time > 3 วินาที
-
-**Diagnostic Steps:**
+### Step 3: Check Database
 ```bash
-# Check database connections
-psql -U admin -d linebot -c "SELECT count(*) FROM pg_stat_activity"
+# Connection test
+psql $DATABASE_URL -c "SELECT 1"
 
-# Check Redis latency
-redis-cli -h redis.example.com ping
-redis-cli -h redis.example.com latency history event
-
-# Check slow queries
-psql -U admin -d linebot -c "
-  SELECT query, mean_exec_time, calls 
-  FROM pg_stat_statements 
-  ORDER BY mean_exec_time DESC 
-  LIMIT 10"
+# Check connections
+psql $DATABASE_URL -c "SELECT count(*) FROM pg_stat_activity"
 ```
 
-### 3. Broadcast ล้มเหลว
-
-**Symptoms:**
-- Broadcast status stuck ที่ "processing"
-- ส่งได้แค่บางส่วน
-
-**Diagnostic Steps:**
+### Step 4: Check Infrastructure
 ```bash
-# Check broadcast worker
-kubectl logs -n line-bot -l app=broadcast-worker --tail=100
+# Load balancer health
+aws elbv2 describe-target-health --target-group-arn $TG_ARN
 
-# Check LINE API quota
-curl -H "Authorization: Bearer $CHANNEL_ACCESS_TOKEN" \
-  https://api.line.me/v2/bot/info
+# ECS service
+aws ecs describe-services --cluster line-bot --services webhook-handler
+```
 
-# Check queue depth
-redis-cli -h redis.example.com llen broadcast:queue
+## Resolution Steps
+
+### If Application Crash
+1. Restart pods: `kubectl rollout restart deployment/webhook-handler -n line-bot`
+2. ถ้ายังไม่ดี: Rollback `kubectl rollout undo deployment/webhook-handler -n line-bot`
+
+### If Database Issue
+1. Check RDS status ใน AWS Console
+2. ถ้า connection pool เต็ม: restart application
+3. ถ้า RDS down: failover ไป Read Replica
+
+### If High Memory
+1. Scale up: `kubectl scale deployment/webhook-handler --replicas=5 -n line-bot`
+2. ดู memory leak patterns ใน logs
+
+## Escalation
+- ไม่สามารถแก้ไขได้ใน 30 นาที → Escalate to Tech Lead
+- Database issue → Escalate to DBA
+- Infrastructure issue → Escalate to DevOps
+
+## Post-Incident
+- สร้าง Postmortem ภายใน 48 ชั่วโมง
+- Update runbook ถ้าขั้นตอนต้องแก้ไข
 ```
 
 ---
 
-## Runbook: Manual Operations
+## 7. Incident Management
 
-### Restart Services
-```bash
-# Restart all LINE Bot pods
-kubectl rollout restart deployment/line-bot-webhook -n line-bot
-kubectl rollout restart deployment/line-bot-worker -n line-bot
+### 7.1 Incident Response Procedure
 
-# ตรวจสอบ
-kubectl get pods -n line-bot -w
+```
+Incident Response Process:
+
+1. Detection (0-5 min)
+   - Alert triggered โดย monitoring
+   - User report ผ่าน support channel
+   - Team member ค้นพบ
+
+2. Triage (5-15 min)
+   - On-call ประเมิน impact
+   - Assign severity level (P1-P4)
+   - สร้าง incident ticket
+   - Notify stakeholders
+
+3. Investigation (15-60 min)
+   - รวบรวม evidence (logs, metrics)
+   - ระบุ root cause
+   - หา workaround/fix
+
+4. Mitigation (30-120 min)
+   - Deploy fix หรือ workaround
+   - Verify resolution
+   - Monitor for recurrence
+
+5. Resolution
+   - Confirm service restored
+   - Update status page
+   - Notify stakeholders
+
+6. Postmortem (within 48h)
+   - Timeline of events
+   - Root cause analysis
+   - Action items ป้องกันในอนาคต
 ```
 
-### Database Backup & Restore
-```bash
-# Manual backup
-pg_dump -U admin -h db.example.com linebot | gzip > backup_$(date +%Y%m%d_%H%M%S).sql.gz
+### 7.2 Communication Templates
 
-# Restore (ระวัง! จะ overwrite ข้อมูล)
-gunzip -c backup_20240115_120000.sql.gz | psql -U admin -h db.example.com linebot
+```
+P1 Incident - Initial Notification:
+"🚨 [P1 INCIDENT] LINE Bot webhook down
+Time: [HH:MM]
+Impact: Users ไม่สามารถใช้ LINE Bot ได้
+IC (Incident Commander): [ชื่อ]
+Status: Investigating
+Next update: +15 minutes
+#incidents"
+
+P1 Incident - Update:
+"🔄 [P1 UPDATE] LINE Bot webhook
+Time: [HH:MM]
+Root Cause: [สาเหตุที่พบ]
+Action: [สิ่งที่กำลังทำ]
+ETA: [เวลาที่คาดว่าจะแก้ได้]
+Next update: +15 minutes"
+
+P1 Incident - Resolution:
+"✅ [P1 RESOLVED] LINE Bot webhook
+Time: [HH:MM]
+Resolution: [วิธีแก้ไข]
+Duration: [X] minutes
+Users affected: [จำนวนโดยประมาณ]
+Postmortem: Coming within 48 hours"
 ```
 
-### Clear Cache
-```bash
-# Clear session cache (ระวัง! users จะต้อง re-authenticate)
-redis-cli -h redis.example.com --scan --pattern "linebot:session:*" | xargs redis-cli -h redis.example.com del
-
-# Clear specific user cache
-redis-cli -h redis.example.com del "linebot:user:Uf1234567890abcdef"
-```
-
-### Feature Flags
-```bash
-# Disable feature temporarily
-redis-cli -h redis.example.com set "feature:payment:enabled" "false"
-
-# Re-enable
-redis-cli -h redis.example.com del "feature:payment:enabled"
-```
-```
-
----
-
-## 7. KPIs และ OKRs สำหรับ LINE OA Team
-
-### 7.1 OKR Framework
+### 7.3 Postmortem Template
 
 ```markdown
-# Q1 2024 OKRs - LINE OA Team
+# Postmortem: [ชื่อ Incident]
+Date: [DD/MM/YYYY]
+Severity: P[N]
+Duration: [X] minutes
+Author: [ชื่อ]
+Reviewers: [ชื่อ]
 
-## Objective 1: เพิ่ม User Engagement
-**Key Results:**
-- KR1.1: เพิ่ม Monthly Active Users จาก 50,000 เป็น 75,000 (+50%)
-- KR1.2: เพิ่ม Message Read Rate จาก 35% เป็น 50%
-- KR1.3: ลด Unblock Rate ให้ต่ำกว่า 2% ต่อเดือน
+## Executive Summary
+[สรุปสั้นๆ 2-3 ประโยค สำหรับผู้บริหาร]
 
-**Initiatives:**
-- Personalization engine (สร้าง content ที่ตรงกับ interest)
-- A/B test message formats
-- Improve conversation UX
+## Impact
+- ผู้ใช้ที่ได้รับผลกระทบ: ~[จำนวน] คน
+- Duration: [X] นาที
+- Revenue impact: ~฿[จำนวน] (ถ้าประมาณได้)
+- Features ที่ไม่ทำงาน: [รายการ]
 
----
+## Timeline
+| Time | Event |
+|------|-------|
+| HH:MM | Alert triggered |
+| HH:MM | On-call notified |
+| HH:MM | Investigation started |
+| HH:MM | Root cause identified |
+| HH:MM | Fix deployed |
+| HH:MM | Service restored |
+| HH:MM | Incident closed |
 
-## Objective 2: เพิ่ม Revenue จาก LINE OA
-**Key Results:**
-- KR2.1: เพิ่ม Conversion Rate จาก 2.3% เป็น 4%
-- KR2.2: เพิ่ม Average Order Value จาก 850 บาท เป็น 1,200 บาท
-- KR2.3: ลด Cart Abandonment Rate จาก 65% เป็น 45%
+## Root Cause Analysis
 
-**Initiatives:**
-- Implement Cart Recovery messages
-- Add upsell/cross-sell in checkout flow
-- PromptPay payment integration
+### What happened?
+[อธิบาย technical details]
 
----
+### Why did it happen?
+[5 Whys analysis]
+Why 1: [...]
+Why 2: [...]
+Why 3: [...]
+Why 4: [...]
+Why 5: Root cause
 
-## Objective 3: ปรับปรุง Technical Reliability
-**Key Results:**
-- KR3.1: เพิ่ม Uptime จาก 99.5% เป็น 99.9%
-- KR3.2: ลด Mean Time to Recovery (MTTR) จาก 45 นาที เป็น 15 นาที
-- KR3.3: เพิ่ม Test Coverage จาก 65% เป็น 85%
+## Contributing Factors
+1. [Factor 1]
+2. [Factor 2]
 
-**Initiatives:**
-- Implement Circuit Breaker
-- Automate rollback procedures
-- Increase test coverage
+## What Went Well
+- [สิ่งที่ทำได้ดี]
+- Detection time รวดเร็ว
 
----
+## What Could Be Improved
+- [สิ่งที่ควรปรับปรุง]
 
-## Weekly OKR Check-in Template
-| KR | Target | Current | Status | Action Needed |
-|----|--------|---------|--------|---------------|
-| MAU growth | 75,000 | 62,000 | 🟡 On Track | - |
-| Message Read Rate | 50% | 38% | 🔴 Behind | A/B test this week |
-| Conversion Rate | 4% | 2.8% | 🟡 On Track | - |
-| Uptime | 99.9% | 99.7% | 🟡 On Track | Review incidents |
+## Action Items
+| Action | Owner | Due Date | Priority |
+|--------|-------|----------|----------|
+| เพิ่ม alert สำหรับ X | สมชาย | 2024-02-01 | P1 |
+| Update runbook | สมหญิง | 2024-02-07 | P2 |
+| Implement circuit breaker | Tech Lead | 2024-02-14 | P2 |
+
+## Lessons Learned
+[Key takeaways สำหรับ team]
 ```
 
-### 7.2 Engineering KPIs Dashboard
+---
+
+## 8. KPIs สำหรับ LINE OA Team
+
+### 8.1 Technical KPIs
 
 ```typescript
-// Engineering KPIs ที่ต้องติดตาม
+// kpis/technical-kpis.ts
 
-interface EngineeringKPIs {
-  // Velocity & Productivity
-  velocityMetrics: {
-    storyPointsPerSprint: number;    // Target: > 40 SP
-    deploymentFrequency: string;      // Target: หลายครั้ง/วัน
-    leadTime: number;                 // Target: < 2 days (code → production)
-    bugEscapeRate: number;            // Target: < 5% bugs reach production
+export interface TechnicalKPIs {
+  // Reliability
+  uptime: {
+    target: 99.9; // %
+    measurement: 'monthly';
+    current?: number;
+  };
+  
+  // Performance
+  p95ResponseTime: {
+    target: 500; // ms
+    measurement: 'webhook handler';
+    current?: number;
   };
   
   // Quality
-  qualityMetrics: {
-    testCoverage: number;             // Target: > 80%
-    codeReviewTime: number;           // Target: < 24 hours
-    technicalDebtRatio: number;       // Target: < 10%
-    criticalBugsOpen: number;         // Target: 0
+  codeCoverage: {
+    target: 80; // %
+    measurement: 'unit tests';
+    current?: number;
   };
   
-  // Operations
-  operationalMetrics: {
-    uptime: number;                   // Target: > 99.9%
-    mttr: number;                     // Target: < 15 minutes
-    mtbf: number;                     // Target: > 30 days
-    errorRate: number;                // Target: < 0.1%
-    p95ResponseTime: number;          // Target: < 200ms
+  deploymentFrequency: {
+    target: 'daily';
+    measurement: 'production deploys';
+    current?: string;
   };
   
-  // Team Health
-  teamMetrics: {
-    teamSatisfaction: number;         // Target: > 4/5 (survey)
-    onboardingTime: number;           // Target: < 2 weeks to first PR
-    documentationCoverage: number;    // Target: > 90%
-    knowledgeSilos: number;           // Target: 0 (bus factor ≥ 2)
+  leadTimeForChanges: {
+    target: 2; // days from commit to production
+    measurement: 'calendar days';
+    current?: number;
+  };
+  
+  mttr: {
+    target: 30; // minutes - Mean Time to Recovery
+    measurement: 'per incident';
+    current?: number;
+  };
+  
+  changeFailureRate: {
+    target: 5; // % of deploys causing incident
+    measurement: 'monthly';
+    current?: number;
   };
 }
 
-// Weekly Engineering Review Template
-const weeklyReview = {
-  date: '2024-01-15',
-  period: 'Week 3, Q1 2024',
+// KPI Dashboard
+export async function calculateTeamKPIs(
+  period: { from: Date; to: Date }
+): Promise<TechnicalKPIs> {
+  const [
+    uptime,
+    p95Response,
+    deployFrequency,
+    incidents,
+    deploys,
+  ] = await Promise.all([
+    calculateUptime(period),
+    calculateP95Response(period),
+    countDeploys(period),
+    getIncidents(period),
+    getDeploys(period),
+  ]);
+
+  const failedDeploys = deploys.filter(d => d.caused_incident);
   
-  highlights: [
-    'Deploy payment feature สำเร็จ ใน 0 incidents',
-    'Test coverage เพิ่มขึ้นจาก 72% เป็น 78%'
-  ],
-  
-  concerns: [
-    'P95 response time เพิ่มขึ้น (300ms → 450ms) - investigate DB indexes',
-    'PR review time เฉลี่ย 36 ชั่วโมง เกิน target'
-  ],
-  
-  metrics: {
-    deployments: 12,
-    incidentCount: 0,
-    p95ResponseTime: 450,
-    testCoverage: 78,
-    openPRs: 8,
-    avgPRReviewTime: 36
-  },
-  
-  nextWeekPriorities: [
-    'Optimize database queries สำหรับ user lookup',
-    'Reduce PR review backlog - dedicated review time 10-11am'
-  ]
-};
-```
-
----
-
-## 8. Onboarding Checklist สำหรับสมาชิกใหม่
-
-```markdown
-# New Team Member Onboarding Checklist
-
-**ชื่อ:** ___________________
-**ตำแหน่ง:** ___________________
-**วันเริ่มงาน:** ___________________
-**Buddy:** ___________________
-
-## Week 1: Orientation & Setup
-
-### Day 1 (วันแรก)
-- [ ] รับ Laptop และ access cards
-- [ ] Setup LINE account (work)
-- [ ] เพิ่มเข้า LINE Groups ทั้งหมด
-- [ ] Setup corporate email
-- [ ] อ่าน Team Handbook
-- [ ] Meet the team (1-on-1 สั้นๆ กับแต่ละคน)
-- [ ] รับทราบ Emergency contacts
-
-### Day 2-3 (Development Setup)
-- [ ] Clone repositories
-  ```bash
-  git clone https://github.com/company/line-bot-backend.git
-  git clone https://github.com/company/line-bot-frontend.git
-  git clone https://github.com/company/line-bot-shared.git
-  ```
-- [ ] Install dependencies และ run development environment
-- [ ] Access ได้แก่:
-  - [ ] GitHub organization
-  - [ ] AWS/GCP console (read-only)
-  - [ ] Jira / Linear
-  - [ ] Confluence / Notion
-  - [ ] Grafana / DataDog
-  - [ ] Sentry
-  - [ ] LINE Developer Console (staging)
-- [ ] ทำ Hello World PR แรก
-
-### Day 4-5 (Codebase Exploration)
-- [ ] อ่าน Architecture Overview document
-- [ ] ทำความเข้าใจ data flow ใน LINE Bot
-- [ ] อ่าน ADRs (Architecture Decision Records) สำคัญ
-- [ ] Shadow on-call engineer 1 วัน
-- [ ] อ่าน Post-mortem ของ incidents ใหญ่ๆ ที่ผ่านมา
-
-## Week 2: Deep Dive
-
-### Technical Deep Dives (เลือกตามตำแหน่ง)
-
-**Backend Developer:**
-- [ ] LINE Messaging API Fundamentals (2 ชั่วโมง)
-- [ ] Webhook Handler Architecture (1 ชั่วโมง)
-- [ ] Database Schema & Migrations
-- [ ] Redis Usage & Patterns
-- [ ] Testing Strategy & Writing Tests
-
-**Frontend/LIFF Developer:**
-- [ ] LIFF SDK Overview
-- [ ] Flex Message Builder deep dive
-- [ ] Component Library workshop
-- [ ] Performance optimization techniques
-
-**DevOps Engineer:**
-- [ ] Infrastructure overview (AWS/GCP)
-- [ ] Kubernetes cluster walkthrough
-- [ ] CI/CD pipeline walkthrough
-- [ ] Monitoring & Alerting setup
-
-### Process Deep Dives
-- [ ] เข้า Sprint Planning (observe)
-- [ ] เข้า Daily Standup (observe)
-- [ ] อ่าน Git workflow & conventions
-- [ ] อ่าน Code review guidelines
-- [ ] เข้า 1-on-1 กับ manager
-
-## Week 3-4: First Contribution
-
-- [ ] รับ Starter task (P4 ticket)
-- [ ] นำเสนอ Solution approach ก่อน code
-- [ ] Submit PR แรก
-- [ ] ผ่าน Code Review กับ mentor
-- [ ] Deploy to staging
-- [ ] Present work ใน Sprint Review
-
-## Month 2: Growing Independence
-
-- [ ] รับ P3/P2 tickets อิสระ
-- [ ] ทำ PR review ให้ผู้อื่น
-- [ ] เป็น on-call secondary
-- [ ] Present ใน Team Knowledge Share
-- [ ] มี 30-60-90 day review กับ manager
-
-## Month 3: Full Team Member
-
-- [ ] รับ Feature ownership
-- [ ] Lead sprint ใด sprint หนึ่ง
-- [ ] เป็น on-call primary
-- [ ] Onboard สมาชิกใหม่คนต่อไป
-- [ ] Complete 90-day performance review
-
----
-
-## สิ่งที่ต้องเรียนรู้ (Self-Study Checklist)
-
-**LINE Platform:**
-- [ ] [LINE Developers Documentation](https://developers.line.biz/)
-- [ ] LINE Messaging API Cookbook
-- [ ] LIFF v2 Documentation
-
-**Technical:**
-- [ ] TypeScript Handbook
-- [ ] Node.js Best Practices
-- [ ] Docker & Kubernetes basics
-- [ ] PostgreSQL Performance
-
-**Soft Skills:**
-- [ ] Agile/Scrum basics
-- [ ] Technical Writing
-- [ ] Incident Management
-```
-
----
-
-## 9. Training Curriculum (12-Week Plan)
-
-```markdown
-# 12-Week LINE Bot Developer Training Curriculum
-
-## Module 1: Foundation (Week 1-2)
-
-### Week 1: LINE Platform Basics
-**วัตถุประสงค์:** เข้าใจ LINE Ecosystem และ API พื้นฐาน
-
-| วัน | หัวข้อ | ระยะเวลา | รูปแบบ |
-|----|--------|---------|--------|
-| จันทร์ | LINE Platform Overview & Ecosystem | 3 ชม. | Lecture + Demo |
-| อังคาร | LINE Messaging API - Text & Sticker | 4 ชม. | Hands-on Lab |
-| พุธ | Flex Message Builder | 4 ชม. | Workshop |
-| พฤหัส | Rich Menu & Image Map | 3 ชม. | Project |
-| ศุกร์ | Mini Project: สร้าง Info Bot | 4 ชม. | Project |
-
-**Lab: สร้าง Customer Service Bot พื้นฐาน**
-```typescript
-// Lab Exercise: Basic Echo Bot
-const express = require('express');
-const line = require('@line/bot-sdk');
-
-const config = {
-  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.LINE_CHANNEL_SECRET
-};
-
-const client = new line.Client(config);
-const app = express();
-
-app.post('/webhook', line.middleware(config), (req, res) => {
-  Promise.all(req.body.events.map(handleEvent))
-    .then(result => res.json(result));
-});
-
-async function handleEvent(event) {
-  if (event.type !== 'message' || event.message.type !== 'text') {
-    return null;
-  }
-  
-  // TODO: นักเรียนต้องเพิ่ม:
-  // 1. ทักทายถ้าพิมพ์ "สวัสดี"
-  // 2. ตอบ FAQ 5 ข้อ
-  // 3. ส่ง Flex Message สำหรับ "เมนู"
-  
-  return client.replyMessage(event.replyToken, {
-    type: 'text',
-    text: `Echo: ${event.message.text}`
-  });
+  return {
+    uptime: {
+      target: 99.9,
+      measurement: 'monthly',
+      current: uptime,
+    },
+    p95ResponseTime: {
+      target: 500,
+      measurement: 'webhook handler',
+      current: p95Response,
+    },
+    codeCoverage: {
+      target: 80,
+      measurement: 'unit tests',
+      current: await getLatestCoverage(),
+    },
+    deploymentFrequency: {
+      target: 'daily',
+      measurement: 'production deploys',
+      current: `${deploys.length} deploys`,
+    },
+    leadTimeForChanges: {
+      target: 2,
+      measurement: 'calendar days',
+      current: await calculateLeadTime(deploys),
+    },
+    mttr: {
+      target: 30,
+      measurement: 'per incident',
+      current: incidents.length > 0
+        ? incidents.reduce((sum, i) => sum + i.duration, 0) / incidents.length
+        : 0,
+    },
+    changeFailureRate: {
+      target: 5,
+      measurement: 'monthly',
+      current: deploys.length > 0
+        ? (failedDeploys.length / deploys.length) * 100
+        : 0,
+    },
+  };
 }
 ```
 
-### Week 2: State Management & Conversation Flow
-**วัตถุประสงค์:** สร้าง Multi-step conversation
+### 8.2 Business KPIs สำหรับ LINE Bot
 
-| วัน | หัวข้อ | รูปแบบ |
-|----|--------|--------|
-| จันทร์ | State Machine สำหรับ Conversation | Lecture |
-| อังคาร | Redis สำหรับ Session Storage | Hands-on |
-| พุธ | LIFF - Getting Started | Workshop |
-| พฤหัส | LIFF - Advanced Features | Workshop |
-| ศุกร์ | Mini Project: Order Bot with State | Project |
+```
+Business KPIs:
 
----
+ด้าน Engagement:
+□ Monthly Active Users (MAU) - เป้า: เพิ่ม 10%/เดือน
+□ Message Open Rate - เป้า: > 60%
+□ Click-Through Rate (CTR) - เป้า: > 15%
+□ User Retention (30-day) - เป้า: > 40%
+□ Follow Rate - เป้า: 5% ของ impressions
 
-## Module 2: Backend Development (Week 3-5)
+ด้าน Business:
+□ Orders from LINE - เป้า: 30% ของ total orders
+□ Revenue from LINE - เป้า: ฿500,000/เดือน
+□ Customer Support Tickets Deflected - เป้า: 60%
+□ Average Order Value (AOV) via LINE - เป้า: > AOV จาก channels อื่น
+□ Customer Lifetime Value (CLV) via LINE - เป้า: 20% สูงกว่า average
 
-### Week 3: Database Design & API
-**Topics:**
-- Database schema สำหรับ LINE Bot
-- RESTful API design
-- Authentication & Authorization
-- Error handling patterns
-
-### Week 4: Advanced Features
-**Topics:**
-- Broadcast & Audience Segmentation
-- Chatbot NLP Integration
-- Payment Integration (PromptPay)
-- File upload & Media handling
-
-### Week 5: Performance & Testing
-**Topics:**
-- Load testing with Artillery
-- Unit & Integration testing
-- Performance optimization
-- Caching strategies
-
----
-
-## Module 3: Operations (Week 6-8)
-
-### Week 6: DevOps Basics
-**Topics:**
-- Docker containerization
-- CI/CD with GitHub Actions
-- Kubernetes fundamentals
-- Environment management
-
-### Week 7: Monitoring & Observability
-**Topics:**
-- Grafana dashboards
-- Log management (ELK Stack)
-- Alerting rules
-- Distributed tracing
-
-### Week 8: Security
-**Topics:**
-- OWASP Top 10 สำหรับ LINE Bot
-- Secrets management
-- Penetration testing basics
-- Compliance (PDPA)
-
----
-
-## Module 4: Advanced Topics (Week 9-10)
-
-### Week 9: Scalability
-**Topics:**
-- Horizontal scaling
-- Message queue patterns
-- Microservices architecture
-- Database optimization
-
-### Week 10: AI/ML Integration
-**Topics:**
-- Natural Language Understanding
-- Recommendation systems
-- Predictive analytics
-- Computer vision สำหรับ LINE
-
----
-
-## Module 5: Capstone Project (Week 11-12)
-
-### Week 11-12: Build Complete System
-**Project:** สร้าง E-commerce LINE Bot ที่มีครบทุก feature
-
-**Deliverables:**
-1. ✅ Architecture document
-2. ✅ Working LINE Bot (staging)
-3. ✅ Test coverage > 80%
-4. ✅ API documentation
-5. ✅ Monitoring dashboard
-6. ✅ Deployment runbook
-7. ✅ Presentation (15 นาที)
-
-**Grading Criteria:**
-| หัวข้อ | คะแนน |
-|-------|-------|
-| Functionality (ทำงานได้ตาม requirements) | 30% |
-| Code Quality (clean, tested, documented) | 25% |
-| Architecture (scalable, maintainable) | 20% |
-| Operations (monitoring, deployment) | 15% |
-| Presentation | 10% |
+ด้าน Operations:
+□ Bot Resolution Rate - เป้า: > 70% (แก้ได้โดยไม่ต้องโอนให้ agent)
+□ Average Handling Time - เป้า: < 2 นาที
+□ Customer Satisfaction Score (CSAT) - เป้า: > 4.5/5
+□ First Contact Resolution - เป้า: > 80%
 ```
 
 ---
 
-## 10. Team Handbook Template
+## 9. New Member Onboarding Guide
+
+### 9.1 Onboarding Checklist
 
 ```markdown
-# LINE OA Team Handbook
-**Version:** 2.0
-**Last Updated:** January 2024
-**Owner:** Team Lead
+# LINE Bot Team Onboarding Checklist
 
----
+## Day 1: Administrative
+- [ ] IT setup: laptop, accounts, access
+- [ ] เพิ่มเข้า Slack channels (#line-bot-team, #incidents, #deployments)
+- [ ] เพิ่มเข้า GitHub organization
+- [ ] เพิ่มเข้า JIRA/Linear project
+- [ ] เพิ่มเข้า AWS/GCP accounts (read-only ก่อน)
+- [ ] Meeting กับ manager และ buddy
+- [ ] ทัวร์ office / แนะนำทีม
 
-## 1. ยินดีต้อนรับ
+## Week 1: Environment Setup
+- [ ] Clone repository ทุกตัว
+- [ ] Setup local development environment
+- [ ] Run LINE Bot ใน local development
+- [ ] Setup LINE Developer Account ส่วนตัวสำหรับ testing
+- [ ] อ่าน Architecture documentation
+- [ ] ทำ LINE API tutorial
+- [ ] Review code ของ key features
 
-ยินดีต้อนรับสู่ LINE OA Team! 
+## Week 2-4: Ramp Up
+- [ ] Pair programming กับ buddy
+- [ ] Pick up first ticket (P4 หรือ chore)
+- [ ] Review PRs ของ team members
+- [ ] เข้าใจ deployment process
+- [ ] Shadow on-call engineer
+- [ ] ทำ LINE Bot Certified Professional exam (optional)
 
-เราเป็นทีมที่สร้างประสบการณ์ที่ดีที่สุดให้กับลูกค้าของ [ชื่อบริษัท] ผ่าน LINE Official Account เรามีความมุ่งมั่นที่จะ...
+## Month 2-3: Independent Work
+- [ ] Own feature จาก planning ถึง production
+- [ ] Lead on-call rotation (กับ buddy)
+- [ ] Contribute to architecture discussions
+- [ ] ปรับปรุง documentation
 
-### วิสัยทัศน์ (Vision)
-"เป็น LINE Bot ที่ดีที่สุดในอุตสาหกรรม [X] ของไทย"
+## Buddy System
+- แต่ละ new hire มี buddy ที่ experience > 6 เดือน
+- Buddy meet ทุกวันในสัปดาห์แรก
+- Weekly check-in ต่อไปอีก 3 เดือน
+```
 
-### พันธกิจ (Mission)
-"สร้าง conversational experience ที่ seamless และ personalized ให้กับลูกค้าทุกคน"
+### 9.2 Local Development Setup Guide
 
-### ค่านิยม (Values)
-1. **Customer First** - ตัดสินใจโดยคำนึงถึงลูกค้าเป็นอันดับแรก
-2. **Data Driven** - ใช้ข้อมูลในการตัดสินใจ ไม่ใช่ความรู้สึก
-3. **Ship Fast, Learn Faster** - Deploy บ่อย, เรียนรู้จาก production
-4. **No Blame Culture** - เมื่อเกิดปัญหา แก้ไขก่อน หาสาเหตุทีหลัง
-5. **Radical Transparency** - share ข้อมูลอย่างเปิดเผย
+```bash
+#!/bin/bash
+# scripts/setup-dev.sh
 
----
+echo "🚀 Setting up LINE Bot development environment..."
 
-## 2. วิธีการทำงาน
+# Prerequisites check
+check_prerequisites() {
+  echo "Checking prerequisites..."
+  
+  commands=("node" "npm" "docker" "git" "kubectl")
+  for cmd in "${commands[@]}"; do
+    if command -v "$cmd" &> /dev/null; then
+      echo "  ✅ $cmd: $(${cmd} --version 2>&1 | head -1)"
+    else
+      echo "  ❌ $cmd: not found"
+      echo "  Please install $cmd first"
+      exit 1
+    fi
+  done
+}
 
-### Working Hours
-- Core Hours: 10:00 - 16:00 (ต้องออนไลน์/พร้อมตอบสนอง)
-- Flexible Hours: 08:00 - 19:00 (work ช่วงไหนก็ได้)
-- Remote Work: ได้ทุกวัน (เข้า office อย่างน้อย 2 วัน/สัปดาห์)
+# Clone repositories
+clone_repositories() {
+  echo "Cloning repositories..."
+  
+  REPOS=(
+    "line-bot-backend"
+    "line-bot-liff"
+    "line-bot-infrastructure"
+  )
+  
+  for repo in "${REPOS[@]}"; do
+    if [ ! -d "$repo" ]; then
+      git clone "https://github.com/yourcompany/${repo}.git"
+      echo "  ✅ Cloned $repo"
+    else
+      echo "  ⏭️  $repo already exists"
+    fi
+  done
+}
 
-### Communication Channels
-| ช่องทาง | ใช้สำหรับ | Expected Response Time |
-|--------|---------|----------------------|
-| LINE Group (Work) | Quick questions, updates | 30 นาที (core hours) |
-| Email | Formal communication | 24 ชั่วโมง |
-| Jira/Linear | Task tracking | ดูตาม SLA ของ ticket |
-| GitHub PR | Code review | 24 ชั่วโมง |
-| Video Call | Complex discussions | ตามนัด |
+# Setup environment files
+setup_env() {
+  echo "Setting up environment files..."
+  
+  if [ ! -f "line-bot-backend/.env" ]; then
+    cp line-bot-backend/.env.example line-bot-backend/.env
+    echo "  ✅ Created .env from example"
+    echo "  ⚠️  Please update .env with your values:"
+    echo "     - LINE_CHANNEL_ACCESS_TOKEN"
+    echo "     - LINE_CHANNEL_SECRET"
+    echo "     - DATABASE_URL"
+  fi
+}
 
-### Meeting Norms
-- เริ่มตรงเวลาเสมอ
-- มี Agenda ก่อนทุก meeting
-- ทุกคน on-camera ใน video call
-- สรุป action items หลัง meeting ทุกครั้ง
+# Start local services
+start_services() {
+  echo "Starting local services (Docker)..."
+  docker-compose -f docker-compose.dev.yml up -d
+  
+  echo "Waiting for services to be ready..."
+  sleep 10
+  
+  # Check services
+  if docker-compose -f docker-compose.dev.yml ps | grep -q "Up"; then
+    echo "  ✅ Services started successfully"
+  else
+    echo "  ❌ Some services failed to start"
+    docker-compose -f docker-compose.dev.yml ps
+  fi
+}
 
----
+# Install dependencies
+install_dependencies() {
+  echo "Installing dependencies..."
+  
+  cd line-bot-backend
+  npm install
+  echo "  ✅ Backend dependencies installed"
+  
+  cd ../line-bot-liff
+  npm install
+  echo "  ✅ LIFF dependencies installed"
+  
+  cd ..
+}
 
-## 3. Engineering Guidelines
+# Setup ngrok for webhook testing
+setup_ngrok() {
+  echo "Setting up ngrok for webhook testing..."
+  
+  if ! command -v ngrok &> /dev/null; then
+    echo "  ⚠️  ngrok not found. Install from https://ngrok.com/download"
+  else
+    echo "  ✅ ngrok is installed"
+    echo "  Run: ngrok http 3000"
+    echo "  Then update LINE Webhook URL in LINE Developers Console"
+  fi
+}
 
-### Tech Stack
-**Backend:** Node.js 20 LTS, TypeScript 5.x, Express.js / Fastify
-**Database:** PostgreSQL 15, Redis 7
-**Frontend/LIFF:** React 18, Next.js 14, TypeScript
-**Infrastructure:** AWS (EKS, RDS, ElastiCache), Terraform
-**CI/CD:** GitHub Actions
-**Monitoring:** Grafana, Prometheus, Loki
-**Error Tracking:** Sentry
+# Main
+check_prerequisites
+clone_repositories
+setup_env
+start_services
+install_dependencies
+setup_ngrok
 
-### Definition of Ready (DoR)
-User story พร้อม develop เมื่อ:
-- [ ] มี acceptance criteria ที่ชัดเจน
-- [ ] Story point ถูก estimate แล้ว
-- [ ] Dependencies ถูก identify
-- [ ] Design/wireframe พร้อม (ถ้าต้องการ)
-
-### Definition of Done (DoD)
-Feature เสร็จเมื่อ:
-- [ ] Code pass review
-- [ ] Unit tests > 80% coverage
-- [ ] Integration tests pass
-- [ ] QA sign-off
-- [ ] Documentation updated
-- [ ] Deployed to staging
-- [ ] No critical bugs
-
----
-
-## 4. Career Ladder
-
-### Junior Developer (L1)
-- 0-2 ปีประสบการณ์
-- ทำ well-defined tasks ได้
-- ต้องการ guidance บ้าง
-- Focus: เรียนรู้ codebase และ domain
-
-### Developer (L2)
-- 2-4 ปีประสบการณ์
-- ทำงานอิสระได้
-- Mentor junior developers
-- Focus: Deliver features with quality
-
-### Senior Developer (L3)
-- 4-7 ปีประสบการณ์
-- Lead feature development
-- Drive technical decisions
-- Focus: Team productivity & quality
-
-### Staff Developer (L4)
-- 7+ ปีประสบการณ์
-- Cross-team impact
-- Define technical direction
-- Focus: Organization-wide impact
-
-### Promotion Criteria
-| Level | Technical | Leadership | Business Impact |
-|-------|-----------|------------|----------------|
-| L1→L2 | ทำงานอิสระได้ | Collaborate well | Deliver features on time |
-| L2→L3 | Expert in 2+ areas | Mentor 1-2 juniors | Drive OKRs |
-| L3→L4 | Technical vision | Lead team | Org-wide impact |
-
----
-
-## 5. Recognition & Rewards
-
-### Peer Recognition
-ทุก Sprint retrospective มี "Shoutout" ให้กันและกัน
-
-### Engineering Awards (รายไตรมาส)
-- **Most Impactful Feature** - Feature ที่ส่งผลต่อ KPI มากที่สุด
-- **Quality Champion** - คนที่ prevent bugs มากที่สุด
-- **Team Player** - คนที่ช่วย team มากที่สุด
-- **Innovation Award** - ไอเดียใหม่ที่นำไปใช้ได้จริง
-
----
-
-## 6. Health & Wellbeing
-
-### Work-Life Balance
-- ไม่ส่ง message คาดหวังการตอบ after 18:00 (ยกเว้น P1 incidents)
-- ลาพักร้อนอย่างน้อย 12 วัน/ปี (บังคับ!)
-- Mental health days: ลาได้โดยไม่ต้องอธิบาย
-
-### Learning Budget
-- 15,000 บาท/คน/ปี สำหรับ courses, conferences, books
-- 2 วัน/เดือน สำหรับ self-learning
-
-### On-Call Compensation
-- On-call ช่วง weekend: +2,000 บาท/วัน
-- Incident ที่กระทบเวลาส่วนตัว: Comp-off 2:1
+echo ""
+echo "✅ Development environment setup complete!"
+echo ""
+echo "Next steps:"
+echo "1. Update .env with your credentials"
+echo "2. Run: cd line-bot-backend && npm run dev"
+echo "3. Run: ngrok http 3000"
+echo "4. Update Webhook URL in LINE Developers Console"
+echo "5. Test your LINE Bot!"
 ```
 
 ---
 
-## 11. Stakeholder Communication Templates
+## 10. Training Curriculum
 
-### 11.1 Weekly Status Report
+### 10.1 LINE Bot Developer Training Plan
 
-```markdown
-# LINE OA Weekly Report
-**Week:** [Week Number] - [Date Range]
-**Prepared by:** [Name]
-**Recipients:** [Manager, Stakeholders]
+```
+Training Curriculum สำหรับ LINE Bot Developer
 
----
+Month 1: Foundation (80 ชั่วโมง)
 
-## 🟢 Executive Summary
-[2-3 ประโยคสรุปภาพรวมสัปดาห์นี้]
+Week 1-2: LINE Platform Basics (20h)
+□ LINE OA Dashboard (2h)
+□ LINE Messaging API Overview (4h)
+□ Webhook events deep dive (4h)
+□ Reply vs Push vs Broadcast (3h)
+□ Hands-on: สร้าง basic chatbot (7h)
 
-## 📊 Key Metrics
+Week 3-4: Message Types (20h)
+□ Text, Sticker, Image messages (3h)
+□ Template messages (4h)
+□ Flex Messages (8h)
+□ Quick Reply (2h)
+□ Hands-on: สร้าง product catalog bot (3h)
 
-| Metric | This Week | Last Week | Target | Status |
-|--------|-----------|-----------|--------|--------|
-| Active Users | 45,230 | 43,100 | 50,000 | 🟡 |
-| Messages Sent | 1.2M | 1.1M | 1.5M | 🟡 |
-| Broadcast Open Rate | 42% | 39% | 50% | 🟡 |
-| Bot Response Time | 145ms | 162ms | <200ms | 🟢 |
-| Uptime | 99.95% | 99.87% | 99.9% | 🟢 |
-| Conversion Rate | 3.2% | 2.8% | 4% | 🟡 |
+Week 5-6: Advanced Features (20h)
+□ Rich Menu API (4h)
+□ Postback events (3h)
+□ LIFF Introduction (5h)
+□ LINE Login (3h)
+□ Hands-on: LIFF order form (5h)
 
-## ✅ Accomplishments This Week
-1. Deploy Payment Feature (LINE Pay integration) - สำเร็จ
-2. ปรับปรุง Rich Menu ใหม่ - Engagement เพิ่ม 23%
-3. Fix critical bug: Thai character encoding
+Week 7-8: Backend Development (20h)
+□ Node.js/Express webhook server (4h)
+□ Database design สำหรับ LINE bots (4h)
+□ State management with Redis (3h)
+□ Error handling & logging (3h)
+□ Testing LINE bots (6h)
 
-## 🔨 In Progress
-1. User Segmentation feature (70% complete, ETA: Friday)
-2. Performance optimization (DB indexes)
-3. LIFF 2.0 upgrade
+Month 2: Intermediate (80 ชั่วโมง)
 
-## ⚠️ Blockers & Risks
-1. LINE Pay API sandbox ยัง unstable - รอ LINE Thailand resolve
-2. Design resource ขาดเนื่องจากลา - อาจกระทบ Sprint goal
+Week 9-10: Production Readiness (20h)
+□ Security best practices (5h)
+□ Rate limiting (3h)
+□ Monitoring setup (5h)
+□ CI/CD for LINE bots (7h)
 
-## 📅 Next Week Plan
-1. Complete User Segmentation feature
-2. Start Broadcast Scheduler feature
-3. Security audit ตาม schedule
+Week 11-12: Advanced Architecture (20h)
+□ Event-driven architecture (8h)
+□ Microservices patterns (5h)
+□ Scaling strategies (7h)
 
-## 💡 Notes for Stakeholders
-- Broadcast วัน 15 มกราคม ready - รอ content อนุมัติ
-- Budget request สำหรับ LINE Notification ส่งให้ทาง Finance แล้ว
+Week 13-14: LINE Commerce (20h)
+□ LINE Pay integration (8h)
+□ E-commerce bot development (8h)
+□ Analytics setup (4h)
+
+Week 15-16: Project Work (20h)
+□ Capstone project (20h)
+   - Design และ implement complete LINE Bot system
+   - Code review by senior
+   - Demo to team
+
+Certifications:
+□ LINE Front-end Framework (LIFF) certification
+□ LINE Messaging API certification
+□ Node.js certification (optional)
+
+Resources:
+- LINE Developers Documentation
+- LINE Bot examples repo (internal)
+- Team wiki
+- YouTube: LINE Developers Channel
 ```
 
-### 11.2 Incident Communication Template
+---
+
+## 11. Complete Team Handbook Template
+
+### 11.1 Team Values และ Principles
 
 ```markdown
-# Incident Communication Template
+# LINE Bot Team Handbook
 
-## Initial Alert (ส่งใน 15 นาที)
-Subject: [P1/P2] LINE Bot Incident - [Brief Description]
+## Our Mission
+"สร้าง LINE Bot ที่ทำให้ชีวิตลูกค้าง่ายขึ้น และช่วยให้ธุรกิจเติบโต"
 
-เรียนทีม,
+## Team Values
 
-เกิด incident กับ LINE Bot ณ เวลา [TIME]
+### 1. User First
+- ทุก decision ต้องถามว่า "นี่ดีสำหรับ user หรือไม่?"
+- Performance ไม่ดีคือ bug ชนิดหนึ่ง
+- UX ที่ดีสร้าง trust และ engagement
 
-**ผลกระทบ:** [อธิบายผลกระทบต่อ users]
-**สถานะ:** กำลังสืบสวนหาสาเหตุ
-**ผู้รับผิดชอบ:** [ชื่อ]
+### 2. Reliability Matters
+- "It works on my machine" ไม่พอ
+- ทุก deploy ต้องผ่าน automated tests
+- Monitor production อย่างสม่ำเสมอ
 
-จะ update ทุก 30 นาที
+### 3. Team Over Individual
+- Code review ช่วย team บรรลุเป้าหมาย ไม่ใช่วิจารณ์คนเขียน
+- Knowledge sharing เป็นส่วนสำคัญของงาน
+- Celebrate team wins, not individual wins
 
----
+### 4. Continuous Improvement
+- Retrospectives ช่วย improve processes
+- Blameless postmortems ช่วย improve systems
+- Learning > Blame
 
-## Progress Update (ทุก 30 นาที)
-เวลา [TIME] - Update #[N]
+### 5. Transparency
+- Communicate openly about challenges
+- ถ้ามีปัญหา บอก team ให้เร็วที่สุด
+- Share knowledge อย่างเปิดเผย
+```
 
-**สถานะ:** [Investigating / Identified cause / Implementing fix]
-**สาเหตุ:** [อธิบายถ้าทราบแล้ว]
-**Actions taken:** [รายการสิ่งที่ทำไปแล้ว]
-**ETA to resolve:** [เวลาคาด]
+### 11.2 Meeting Cadence
 
----
+```
+Meeting Schedule:
 
-## Resolution Notice
-Subject: [RESOLVED] LINE Bot Incident - [Brief Description]
+Daily Standup: 09:30-09:45 (15 min)
+- What did I do yesterday?
+- What will I do today?
+- Any blockers?
 
-Incident ได้รับการแก้ไขแล้วเมื่อเวลา [TIME]
+Weekly Team Meeting: จันทร์ 10:00-11:00
+- Sprint progress review
+- Discuss blockers
+- Architecture discussions
 
-**Timeline:**
-- [TIME]: Incident detected
-- [TIME]: Investigation started  
-- [TIME]: Root cause identified
-- [TIME]: Fix deployed
-- [TIME]: Verified resolved
+Sprint Planning: ทุก 2 สัปดาห์ (3 ชั่วโมง)
+- Review upcoming tickets
+- Estimate story points
+- Commit to sprint goals
 
-**Root Cause:** [อธิบาย]
-**Impact:** [ผู้ใช้กี่คน, นานแค่ไหน]
-**Fix:** [อธิบาย solution]
-**Prevention:** [จะป้องกันอย่างไรในอนาคต]
+Sprint Review/Demo: ทุก 2 สัปดาห์ (1 ชั่วโมง)
+- Demo new features
+- Stakeholder feedback
 
-Post-mortem meeting: [วันเวลา]
+Sprint Retrospective: ทุก 2 สัปดาห์ (1 ชั่วโมง)
+- What went well?
+- What could be improved?
+- Action items
+
+Monthly Tech Talk: เดือนละครั้ง (1 ชั่วโมง)
+- Share learning, new technologies
+- สมาชิก team สลับกัน present
+
+Meeting Rules:
+1. เริ่มตรงเวลา
+2. มี agenda ล่วงหน้า
+3. Note taker หมุนเวียน
+4. Action items มี owner และ due date
+5. ไม่มีโทรศัพท์/laptop ถ้าไม่จำเป็น
+```
+
+### 11.3 Communication Channels
+
+```
+Communication Tools:
+
+Slack:
+#line-bot-team    - ทั่วไป
+#line-incidents   - Incidents เท่านั้น
+#line-deployments - Deploy notifications
+#line-alerts      - Automated alerts
+#line-reviews     - Code reviews
+#line-random      - สนุกสนาน
+
+Email:
+- สำหรับ formal communication
+- External stakeholders
+- ไม่ใช่ urgent items
+
+JIRA/Linear:
+- Project management
+- Bug tracking
+- Sprint planning
+
+Confluence/Notion:
+- Documentation
+- Runbooks
+- Architecture decisions
+
+PagerDuty:
+- Incident management
+- On-call scheduling
+- Alert routing
+
+Response Time Expectations:
+- Slack (business hours): ภายใน 2 ชั่วโมง
+- Email (business hours): ภายใน 24 ชั่วโมง
+- Slack (urgent/production): ทันที
+- PagerDuty P1: 5 นาที
 ```
 
 ---
 
 ## สรุป
 
-การสร้างทีมและกระบวนการทำงานที่ดีเป็นรากฐานของ LINE Bot ที่ประสบความสำเร็จ สิ่งสำคัญที่ต้องจำไว้:
+บทนี้ครอบคลุม:
 
-1. **คน** คือทรัพยากรที่สำคัญที่สุด - ลงทุนในการพัฒนาทีม
-2. **Process** ต้องเหมาะกับขนาดทีมและบริบทธุรกิจ
-3. **Communication** ที่ชัดเจนช่วยลด misalignment
-4. **Measurement** ทำให้เห็นว่าต้องปรับปรุงที่ไหน
-5. **Culture** ที่ดีช่วยรักษาคนเก่งให้อยู่กับทีม
+1. **Team Structure** สำหรับขนาดธุรกิจต่างๆ
+2. **Roles & Responsibilities** ที่ชัดเจน
+3. **Git Flow** สำหรับ LINE Bot development
+4. **Sprint Planning** templates
+5. **Code Review** checklist ครอบคลุม
+6. **Documentation Standards** สำหรับ LINE Bot
+7. **On-Call Runbook** พร้อมใช้งาน
+8. **Incident Management** process
+9. **KPIs** ทั้ง technical และ business
+10. **Onboarding Guide** สำหรับ new members
+11. **Training Curriculum** 2 เดือน
 
-ทีมที่ดีไม่ได้สร้างข้ามคืน แต่ต้องลงทุนอย่างต่อเนื่องในระยะยาว
-
----
-
-*Part 99 จาก 100 - ใกล้ถึงบทสุดท้ายแล้ว!*
+Team ที่ดีมี process ที่ชัดเจน สื่อสารเปิดเผย และ focus ที่การพัฒนาอย่างต่อเนื่อง นั่นคือสูตรสำเร็จสำหรับ LINE Bot team ที่ประสบความสำเร็จ
