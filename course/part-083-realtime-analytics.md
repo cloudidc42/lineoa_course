@@ -1519,3 +1519,398 @@ Real-time Analytics Pipeline สำหรับ LINE Bot ประกอบด�
 ---
 
 *จบ Part 83: Real-time Analytics สำหรับ LINE Bots*
+
+---
+
+## 10. Complete Kafka + LINE Bot Setup
+
+### 10.1 Full Kafka Consumer Service
+
+```javascript
+// services/analytics-consumer/src/index.js
+const { Kafka } = require('kafkajs');
+const { createClient } = require('@clickhouse/client');
+
+class AnalyticsConsumerService {
+  constructor() {
+    this.kafka = new Kafka({
+      clientId: 'analytics-consumer',
+      brokers: process.env.KAFKA_BROKERS?.split(',') || ['localhost:9092'],
+    });
+    
+    this.consumer = this.kafka.consumer({
+      groupId: 'analytics-consumers',
+      maxBytesPerPartition: 1048576, // 1MB
+      sessionTimeout: 30000,
+      heartbeatInterval: 3000,
+    });
+    
+    this.clickhouse = createClient({
+      host: process.env.CLICKHOUSE_HOST || 'http://localhost:8123',
+      database: 'linebot',
+      username: process.env.CLICKHOUSE_USER || 'default',
+      password: process.env.CLICKHOUSE_PASSWORD || '',
+    });
+    
+    this.batchBuffer = new Map();
+    this.batchSize = 1000;
+    this.flushInterval = 5000; // 5 seconds
+  }
+  
+  async start() {
+    await this.consumer.connect();
+    
+    await this.consumer.subscribe({
+      topics: [
+        'linebot.events.messages',
+        'linebot.events.follows',
+        'linebot.events.postbacks',
+        'linebot.events.purchases',
+      ],
+      fromBeginning: false,
+    });
+    
+    // Setup batch flush interval
+    setInterval(() => this.flushAllBuffers(), this.flushInterval);
+    
+    await this.consumer.run({
+      eachBatch: async ({ batch, resolveOffset, heartbeat }) => {
+        const { topic, messages } = batch;
+        
+        for (const message of messages) {
+          try {
+            const event = JSON.parse(message.value?.toString() || '{}');
+            await this.processEvent(topic, event);
+            resolveOffset(message.offset);
+            
+            // Heartbeat ทุก 100 messages
+            if (parseInt(message.offset) % 100 === 0) {
+              await heartbeat();
+            }
+          } catch (error) {
+            console.error(`Error processing message:`, error);
+          }
+        }
+      },
+    });
+    
+    console.log('Analytics consumer started');
+  }
+  
+  async processEvent(topic, event) {
+    const bufferKey = this.getTableForTopic(topic);
+    
+    if (!this.batchBuffer.has(bufferKey)) {
+      this.batchBuffer.set(bufferKey, []);
+    }
+    
+    const buffer = this.batchBuffer.get(bufferKey);
+    buffer.push(this.transformEvent(topic, event));
+    
+    // Flush if buffer is full
+    if (buffer.length >= this.batchSize) {
+      await this.flushBuffer(bufferKey);
+    }
+  }
+  
+  getTableForTopic(topic) {
+    const mapping = {
+      'linebot.events.messages': 'events',
+      'linebot.events.follows': 'follows',
+      'linebot.events.postbacks': 'events',
+      'linebot.events.purchases': 'purchases',
+    };
+    return mapping[topic] || 'events';
+  }
+  
+  transformEvent(topic, event) {
+    if (topic === 'linebot.events.purchases') {
+      return {
+        event_id: event.eventId || require('crypto').randomUUID(),
+        user_id: event.userId,
+        order_id: event.orderId,
+        amount: event.amount,
+        currency: event.currency || 'THB',
+        items: JSON.stringify(event.items || []),
+        channel: event.channel || 'line',
+        timestamp: event.timestamp || new Date().toISOString(),
+        date: event.timestamp?.split('T')[0] || new Date().toISOString().split('T')[0],
+      };
+    }
+    
+    return {
+      event_id: event.eventId || require('crypto').randomUUID(),
+      event_type: event.type || 'unknown',
+      user_id: event.userId || '',
+      group_id: event.groupId || null,
+      timestamp: event.timestamp || new Date().toISOString(),
+      message_type: event.messageType || '',
+      message_text: event.messageText || null,
+      response_time_ms: event.responseTimeMs || 0,
+      error_occurred: event.error ? 1 : 0,
+      date: (event.timestamp || new Date().toISOString()).split('T')[0],
+      hour: new Date(event.timestamp || new Date()).getHours(),
+    };
+  }
+  
+  async flushBuffer(tableKey) {
+    const buffer = this.batchBuffer.get(tableKey);
+    if (!buffer || buffer.length === 0) return;
+    
+    const rows = [...buffer];
+    this.batchBuffer.set(tableKey, []);
+    
+    try {
+      await this.clickhouse.insert({
+        table: tableKey,
+        values: rows,
+        format: 'JSONEachRow',
+      });
+      
+      console.log(`Flushed ${rows.length} rows to ${tableKey}`);
+    } catch (error) {
+      console.error(`Failed to flush to ${tableKey}:`, error);
+      // Retry logic
+      setTimeout(() => {
+        const currentBuffer = this.batchBuffer.get(tableKey) || [];
+        this.batchBuffer.set(tableKey, [...rows, ...currentBuffer]);
+      }, 5000);
+    }
+  }
+  
+  async flushAllBuffers() {
+    for (const tableKey of this.batchBuffer.keys()) {
+      await this.flushBuffer(tableKey);
+    }
+  }
+  
+  async stop() {
+    await this.flushAllBuffers();
+    await this.consumer.disconnect();
+    await this.clickhouse.close();
+  }
+}
+
+const service = new AnalyticsConsumerService();
+
+process.on('SIGTERM', async () => {
+  await service.stop();
+  process.exit(0);
+});
+
+service.start().catch(console.error);
+```
+
+---
+
+## 11. Grafana Real-time Dashboards
+
+### 11.1 Dashboard Provisioning
+
+```yaml
+# monitoring/grafana/provisioning/dashboards/linebot.yaml
+apiVersion: 1
+
+providers:
+  - name: linebot-dashboards
+    orgId: 1
+    folder: LINE Bot
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/linebot
+      foldersFromFilesStructure: true
+```
+
+```json
+{
+  "uid": "linebot-realtime",
+  "title": "LINE Bot Real-time Overview",
+  "refresh": "5s",
+  "schemaVersion": 38,
+  "tags": ["linebot", "realtime"],
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {
+    "refresh_intervals": ["5s", "10s", "30s", "1m"]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "💬 Messages/min (Real-time)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "datasource": {"type": "vertamedia-clickhouse-datasource"},
+      "targets": [{
+        "rawSql": "SELECT toStartOfMinute(timestamp) AS t, count() AS messages FROM linebot.events WHERE timestamp >= now() - INTERVAL 1 HOUR AND event_type = 'message' GROUP BY t ORDER BY t",
+        "format": "time_series"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"lineWidth": 2, "fillOpacity": 10}
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "👥 Active Users Now",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0},
+      "datasource": {"type": "vertamedia-clickhouse-datasource"},
+      "targets": [{
+        "rawSql": "SELECT count(DISTINCT user_id) AS value FROM linebot.events WHERE timestamp >= now() - INTERVAL 5 MINUTE",
+        "format": "table"
+      }],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 3,
+      "title": "⚡ Response Time p99",
+      "type": "gauge",
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 0},
+      "datasource": {"type": "vertamedia-clickhouse-datasource"},
+      "targets": [{
+        "rawSql": "SELECT quantile(0.99)(response_time_ms) AS value FROM linebot.events WHERE timestamp >= now() - INTERVAL 5 MINUTE",
+        "format": "table"
+      }],
+      "options": {
+        "minValue": 0,
+        "maxValue": 1000,
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 200},
+            {"color": "red", "value": 500}
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "💰 Revenue Today",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 0},
+      "datasource": {"type": "vertamedia-clickhouse-datasource"},
+      "targets": [{
+        "rawSql": "SELECT sum(amount) AS value FROM linebot.purchases WHERE date = today()",
+        "format": "table"
+      }],
+      "options": {
+        "colorMode": "background",
+        "reduceOptions": {"calcs": ["lastNotNull"]}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyTHB"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "📊 Message Types (Last Hour)",
+      "type": "piechart",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
+      "datasource": {"type": "vertamedia-clickhouse-datasource"},
+      "targets": [{
+        "rawSql": "SELECT message_type AS label, count() AS value FROM linebot.events WHERE event_type = 'message' AND timestamp >= now() - INTERVAL 1 HOUR GROUP BY message_type ORDER BY value DESC",
+        "format": "table"
+      }]
+    },
+    {
+      "id": 6,
+      "title": "🔥 Top Intents (Last Hour)",
+      "type": "bargauge",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8},
+      "datasource": {"type": "vertamedia-clickhouse-datasource"},
+      "targets": [{
+        "rawSql": "SELECT intent AS label, count() AS value FROM linebot.events WHERE intent != '' AND timestamp >= now() - INTERVAL 1 HOUR GROUP BY intent ORDER BY value DESC LIMIT 10",
+        "format": "table"
+      }]
+    },
+    {
+      "id": 7,
+      "title": "⚠️ Error Rate",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8},
+      "datasource": {"type": "vertamedia-clickhouse-datasource"},
+      "targets": [{
+        "rawSql": "SELECT toStartOfMinute(timestamp) AS t, countIf(error_occurred=1)/count() AS error_rate FROM linebot.events WHERE timestamp >= now() - INTERVAL 1 HOUR GROUP BY t ORDER BY t",
+        "format": "time_series"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 0.01},
+              {"color": "red", "value": 0.05}
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
+```
+
+---
+
+## 12. Kafka Connect Integration
+
+### 12.1 Kafka Connect to ClickHouse
+
+```json
+{
+  "name": "clickhouse-sink-events",
+  "config": {
+    "connector.class": "com.clickhouse.kafka.connect.ClickHouseSinkConnector",
+    "tasks.max": "3",
+    "topics": "linebot.events.messages,linebot.events.postbacks",
+    "clickhouse.server.url": "http://clickhouse:8123",
+    "clickhouse.server.user": "default",
+    "clickhouse.server.pass": "",
+    "clickhouse.server.database": "linebot",
+    "clickhouse.table.name": "events",
+    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+    "insert.distributed.sync": "false",
+    "clickhouse.insert.batch.size": "10000",
+    "clickhouse.insert.batch.timeout.ms": "5000",
+    "errors.tolerance": "all",
+    "errors.deadletterqueue.topic.name": "linebot.dlq",
+    "errors.deadletterqueue.context.headers.enable": "true"
+  }
+}
+```
+
+---
+
+## สรุปสมบูรณ์ Real-time Analytics
+
+Real-time Analytics Stack สมบูรณ์สำหรับ LINE Bot:
+
+| Layer | Technology | Throughput | Latency |
+|-------|-----------|-----------|---------|
+| Ingestion | Kafka (3 brokers) | 1M msg/s | < 10ms |
+| Stream Processing | Apache Flink | 500K events/s | 100-500ms |
+| Storage | ClickHouse | 1B rows/s insert | < 100ms query |
+| Visualization | Grafana | Real-time 5s refresh | < 1s |
+| Alerting | Prometheus + AlertManager | 15s evaluation | < 30s notify |
+
+ROI ของ Real-time Analytics:
+- ลด Mean Time to Detect (MTTD) จาก ชั่วโมง เป็น นาที
+- เพิ่ม conversion rate 10-15% ผ่าน real-time personalization
+- ลด customer churn ด้วย early warning alerts
+
+---
+
+*จบ Part 83: Real-time Analytics สำหรับ LINE Bots (ฉบับสมบูรณ์)*

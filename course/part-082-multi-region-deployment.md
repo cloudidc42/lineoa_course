@@ -1681,3 +1681,379 @@ Multi-Region Deployment สำหรับ LINE Bot ต้องพิจาร�
 ---
 
 *จบ Part 82: Multi-Region Deployment สำหรับ LINE Bots*
+
+---
+
+## 13. Kubernetes Multi-Region Federation
+
+### 13.1 KubeFed Setup
+
+```yaml
+# kubernetes/federation/kubefed.yaml
+apiVersion: types.kubefed.io/v1beta1
+kind: FederatedDeployment
+metadata:
+  name: message-service
+  namespace: linebot
+spec:
+  template:
+    metadata:
+      labels:
+        app: message-service
+    spec:
+      replicas: 3
+      selector:
+        matchLabels:
+          app: message-service
+      template:
+        metadata:
+          labels:
+            app: message-service
+        spec:
+          containers:
+          - name: message-service
+            image: gcr.io/myproject/message-service:latest
+            resources:
+              requests:
+                cpu: 250m
+                memory: 256Mi
+  placement:
+    clusters:
+    - name: singapore
+    - name: tokyo
+  overrides:
+  - clusterName: singapore
+    clusterOverrides:
+    - path: /spec/replicas
+      value: 5  # Primary region ต้องการ replicas มากกว่า
+  - clusterName: tokyo
+    clusterOverrides:
+    - path: /spec/replicas
+      value: 2  # DR region ใช้น้อยกว่า
+```
+
+---
+
+## 14. Performance Optimization Multi-Region
+
+### 14.1 Edge Caching
+
+```javascript
+// src/edge/EdgeCache.js
+
+class EdgeCache {
+  constructor({ redisClients }) {
+    // Redis clients สำหรับแต่ละ region
+    this.regionClients = redisClients;
+    this.localRegion = process.env.REGION || 'sg';
+    
+    // TTL ต่าง region
+    this.ttls = {
+      user_profile: 3600,    // 1 hour
+      product_catalog: 86400, // 24 hours
+      rich_menu: 86400,      // 24 hours
+      campaign: 1800,        // 30 minutes
+    };
+  }
+  
+  async get(key, type = 'default') {
+    const localClient = this.regionClients[this.localRegion];
+    
+    // Try local region first (fastest)
+    const localValue = await localClient.get(key);
+    if (localValue) {
+      return JSON.parse(localValue);
+    }
+    
+    // Try other regions (slight latency)
+    for (const [region, client] of Object.entries(this.regionClients)) {
+      if (region === this.localRegion) continue;
+      
+      const value = await client.get(key);
+      if (value) {
+        const data = JSON.parse(value);
+        
+        // Replicate to local region
+        const ttl = this.ttls[type] || 3600;
+        await localClient.setEx(key, ttl, value);
+        
+        return data;
+      }
+    }
+    
+    return null;
+  }
+  
+  async set(key, value, type = 'default') {
+    const ttl = this.ttls[type] || 3600;
+    const serialized = JSON.stringify(value);
+    
+    // Write to all regions (eventual consistency)
+    const writePromises = Object.values(this.regionClients).map(
+      client => client.setEx(key, ttl, serialized).catch(err => {
+        console.error(`Cache write failed for region:`, err.message);
+      })
+    );
+    
+    // Wait for local write, background the rest
+    await this.regionClients[this.localRegion].setEx(key, ttl, serialized);
+    Promise.allSettled(writePromises);
+  }
+  
+  async invalidate(key) {
+    // Delete from all regions
+    await Promise.allSettled(
+      Object.values(this.regionClients).map(client => client.del(key))
+    );
+  }
+  
+  // Warm up cache สำหรับ popular content
+  async warmUp(items) {
+    const pipeline = this.regionClients[this.localRegion].pipeline();
+    
+    for (const { key, value, type } of items) {
+      const ttl = this.ttls[type] || 3600;
+      pipeline.setEx(key, ttl, JSON.stringify(value));
+    }
+    
+    await pipeline.exec();
+    console.log(`Cache warmed up with ${items.length} items`);
+  }
+}
+
+module.exports = EdgeCache;
+```
+
+### 14.2 Connection Pool Optimization
+
+```javascript
+// src/database/RegionalConnectionPool.js
+const { Pool } = require('pg');
+
+class RegionalConnectionPool {
+  constructor(config) {
+    this.pools = {};
+    
+    // Primary (write)
+    this.pools.write = new Pool({
+      connectionString: config.primaryUrl,
+      min: 5,
+      max: 50,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 3000,
+      statement_timeout: 10000,
+    });
+    
+    // Read replicas (round-robin)
+    this.readPools = config.replicaUrls.map(url => new Pool({
+      connectionString: url,
+      min: 5,
+      max: 30,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 2000,
+      statement_timeout: 5000,
+    }));
+    
+    this.readPoolIndex = 0;
+  }
+  
+  // Write operations ไปที่ primary
+  async query(sql, params) {
+    const client = await this.pools.write.connect();
+    try {
+      return await client.query(sql, params);
+    } finally {
+      client.release();
+    }
+  }
+  
+  // Read operations ไปที่ replica (round-robin)
+  async readQuery(sql, params) {
+    const pool = this.readPools[this.readPoolIndex];
+    this.readPoolIndex = (this.readPoolIndex + 1) % this.readPools.length;
+    
+    const client = await pool.connect();
+    try {
+      return await client.query(sql, params);
+    } finally {
+      client.release();
+    }
+  }
+  
+  // Transaction ต้องใช้ write pool
+  async transaction(operations) {
+    const client = await this.pools.write.connect();
+    
+    try {
+      await client.query('BEGIN');
+      const result = await operations(client);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+  
+  async getPoolStats() {
+    return {
+      write: {
+        total: this.pools.write.totalCount,
+        idle: this.pools.write.idleCount,
+        waiting: this.pools.write.waitingCount,
+      },
+      replicas: this.readPools.map((pool, i) => ({
+        index: i,
+        total: pool.totalCount,
+        idle: pool.idleCount,
+        waiting: pool.waitingCount,
+      })),
+    };
+  }
+}
+
+module.exports = RegionalConnectionPool;
+```
+
+---
+
+## 15. Deployment Scripts
+
+### 15.1 Multi-Region Deployment Script
+
+```bash
+#!/bin/bash
+# scripts/deploy-multi-region.sh
+
+set -euo pipefail
+
+VERSION=$1
+REGIONS=("ap-southeast-1" "ap-northeast-1")
+IMAGE="gcr.io/myproject/message-service:${VERSION}"
+
+echo "Deploying version ${VERSION} to regions: ${REGIONS[*]}"
+
+# Build and push image
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -t "${IMAGE}" \
+  --push \
+  ./apps/message-service
+
+echo "Image pushed: ${IMAGE}"
+
+# Deploy to each region
+for REGION in "${REGIONS[@]}"; do
+  echo "Deploying to ${REGION}..."
+  
+  # Switch kubectl context
+  kubectl config use-context "linebot-${REGION}"
+  
+  # Deploy canary first (5% traffic)
+  kubectl set image deployment/message-service-canary \
+    message-service="${IMAGE}" \
+    -n linebot
+  
+  kubectl rollout status deployment/message-service-canary -n linebot
+  
+  # Wait and check health
+  sleep 60
+  
+  # Check error rate
+  ERROR_RATE=$(curl -s "http://prometheus:9090/api/v1/query?query=rate(http_requests_total{status=~'5..',deployment='message-service-canary'}[5m])/rate(http_requests_total{deployment='message-service-canary'}[5m])" | jq '.data.result[0].value[1]' -r)
+  
+  if (( $(echo "$ERROR_RATE > 0.01" | bc -l) )); then
+    echo "ERROR: High error rate in canary: ${ERROR_RATE}"
+    kubectl rollout undo deployment/message-service-canary -n linebot
+    exit 1
+  fi
+  
+  echo "Canary healthy in ${REGION}, promoting to production..."
+  
+  # Deploy to production
+  kubectl set image deployment/message-service \
+    message-service="${IMAGE}" \
+    -n linebot
+  
+  kubectl rollout status deployment/message-service -n linebot
+  
+  echo "Deployment complete in ${REGION}"
+done
+
+echo "Multi-region deployment complete!"
+
+# Send notification
+curl -X POST "${SLACK_WEBHOOK}" \
+  -H 'Content-type: application/json' \
+  -d "{\"text\": \"✅ Deployed ${VERSION} to all regions successfully\"}"
+```
+
+---
+
+## 16. Observability Stack
+
+### 16.1 Distributed Tracing
+
+```javascript
+// src/tracing/tracer.js
+const { NodeTracerProvider } = require('@opentelemetry/sdk-node');
+const { JaegerExporter } = require('@opentelemetry/exporter-jaeger');
+const { Resource } = require('@opentelemetry/resources');
+const { SemanticResourceAttributes } = require('@opentelemetry/semantic-conventions');
+const { SimpleSpanProcessor } = require('@opentelemetry/sdk-trace-base');
+const { HttpInstrumentation } = require('@opentelemetry/instrumentation-http');
+const { ExpressInstrumentation } = require('@opentelemetry/instrumentation-express');
+const { PgInstrumentation } = require('@opentelemetry/instrumentation-pg');
+
+const provider = new NodeTracerProvider({
+  resource: Resource.default().merge(new Resource({
+    [SemanticResourceAttributes.SERVICE_NAME]: process.env.SERVICE_NAME || 'message-service',
+    [SemanticResourceAttributes.SERVICE_VERSION]: process.env.APP_VERSION || '1.0.0',
+    'deployment.environment': process.env.NODE_ENV || 'production',
+    'region': process.env.REGION || 'ap-southeast-1',
+  })),
+});
+
+const jaegerExporter = new JaegerExporter({
+  endpoint: process.env.JAEGER_ENDPOINT || 'http://jaeger:14268/api/traces',
+});
+
+provider.addSpanProcessor(new SimpleSpanProcessor(jaegerExporter));
+
+provider.register({
+  instrumentations: [
+    new HttpInstrumentation({
+      requestHook: (span, requestInfo) => {
+        span.setAttribute('http.user_agent', requestInfo.request.headers['user-agent'] || '');
+      },
+    }),
+    new ExpressInstrumentation(),
+    new PgInstrumentation(),
+  ],
+});
+
+module.exports = provider.getTracer(process.env.SERVICE_NAME || 'message-service');
+```
+
+---
+
+## สรุปสมบูรณ์ Multi-Region
+
+Multi-Region Deployment เป็น investment ที่คุ้มค่าสำหรับ LINE OA ที่:
+- มีผู้ใช้มากกว่า 100,000 คน
+- ต้องการ SLA สูง (99.95%+)
+- ให้บริการในหลายประเทศ
+- มี compliance requirements เกี่ยวกับ data residency
+
+Best Practice:
+1. เริ่มจาก Single Region แล้วค่อย expand
+2. ใช้ Feature Flags สำหรับ gradual rollout
+3. Test failover สม่ำเสมอ (quarterly Game Days)
+4. Monitor cross-region latency ตลอดเวลา
+5. Document runbooks สำหรับทุก failure scenario
+
+---
+
+*จบ Part 82: Multi-Region Deployment สำหรับ LINE Bots (ฉบับสมบูรณ์)*
