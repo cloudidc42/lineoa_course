@@ -1381,3 +1381,338 @@ Response Time Expectations:
 11. **Training Curriculum** 2 เดือน
 
 Team ที่ดีมี process ที่ชัดเจน สื่อสารเปิดเผย และ focus ที่การพัฒนาอย่างต่อเนื่อง นั่นคือสูตรสำเร็จสำหรับ LINE Bot team ที่ประสบความสำเร็จ
+
+---
+
+## 12. Technical Debt Management
+
+### 12.1 ทำความเข้าใจ Technical Debt
+
+```markdown
+# Technical Debt Tracking Template
+
+## ประเภทของ Technical Debt
+
+### Intentional Debt (จงใจ)
+- ตัดสินใจใช้ solution ชั่วคราวเพราะ deadline
+- ต้องมี ticket ติดตามเสมอ
+- กำหนดวันชำระหนี้ (ไม่เกิน 2 sprints)
+
+ตัวอย่าง:
+- ใช้ hardcoded config แทน feature flag เพราะต้องการ deploy ด่วน
+- Skip unit test เพราะ sprint ตึง (แต่ต้องเพิ่มใน sprint ถัดไป)
+
+### Unintentional Debt (ไม่ตั้งใจ)
+- โค้ดเก่าที่ไม่ได้ refactor
+- Library ที่ out of date
+- Architecture ที่ design ไม่ดีตั้งแต่แรก
+
+### Environmental Debt
+- Infrastructure ที่ล้าสมัย
+- Tool ที่ไม่ได้ upgrade
+- Process ที่ไม่มีประสิทธิภาพ
+```
+
+### 12.2 Debt Tracking Board
+
+```typescript
+// Technical Debt Registry
+interface TechnicalDebt {
+  id: string;
+  title: string;
+  description: string;
+  type: 'intentional' | 'unintentional' | 'environmental';
+  severity: 'high' | 'medium' | 'low';
+  area: string;         // database, api, frontend, infra
+  estimatedEffort: number;  // story points
+  businessImpact: string;
+  createdDate: Date;
+  targetDate?: Date;
+  assignee?: string;
+  status: 'open' | 'in_progress' | 'resolved';
+  notes: string;
+}
+
+// Example Debt Items สำหรับ LINE Bot Project
+const debtRegistry: TechnicalDebt[] = [
+  {
+    id: 'TD-001',
+    title: 'Migrate from callback to async/await in webhook handler',
+    description: 'Legacy code ใช้ callback pattern ซึ่งยากต่อการ maintain',
+    type: 'unintentional',
+    severity: 'medium',
+    area: 'api',
+    estimatedEffort: 5,
+    businessImpact: 'High bug risk, slow onboarding',
+    createdDate: new Date('2024-01-01'),
+    targetDate: new Date('2024-03-01'),
+    assignee: 'john',
+    status: 'in_progress',
+    notes: 'Start with message handler, then event router'
+  },
+  {
+    id: 'TD-002',
+    title: 'Replace deprecated LINE Bot SDK v6 with v8',
+    description: 'SDK v6 reaches EOL in June 2024',
+    type: 'environmental',
+    severity: 'high',
+    area: 'api',
+    estimatedEffort: 8,
+    businessImpact: 'Security vulnerabilities after EOL',
+    createdDate: new Date('2024-01-15'),
+    targetDate: new Date('2024-04-01'),
+    status: 'open',
+    notes: 'Breaking changes in v7+: new auth methods'
+  }
+];
+
+// Tech Debt Ratio Calculation
+function calculateDebtRatio(
+  debtItems: TechnicalDebt[],
+  totalCodebasePoints: number
+): number {
+  const totalDebtPoints = debtItems
+    .filter(d => d.status !== 'resolved')
+    .reduce((sum, d) => sum + d.estimatedEffort, 0);
+  
+  return (totalDebtPoints / totalCodebasePoints) * 100;
+}
+
+// Target: Keep debt ratio < 10%
+// Alert: If > 20%, dedicate sprint to debt reduction
+```
+
+---
+
+## 13. Knowledge Management
+
+### 13.1 Internal Knowledge Base Structure
+
+```
+Knowledge Base Structure:
+═══════════════════════════
+
+📁 LINE OA Team Knowledge Base
+├── 📁 Onboarding
+│   ├── Welcome Guide
+│   ├── Development Setup
+│   ├── Access & Permissions
+│   └── First Week Checklist
+│
+├── 📁 Technical
+│   ├── Architecture Overview
+│   ├── API Documentation
+│   ├── Database Schema
+│   ├── Deployment Guides
+│   └── Troubleshooting FAQs
+│
+├── 📁 Processes
+│   ├── Git Workflow
+│   ├── Code Review Guide
+│   ├── Release Process
+│   └── On-Call Procedures
+│
+├── 📁 Runbooks
+│   ├── Common Incidents
+│   ├── Database Operations
+│   ├── Deployment Rollback
+│   └── Emergency Contacts
+│
+├── 📁 Decisions
+│   ├── ADR-001: Redis for Sessions
+│   ├── ADR-002: TypeScript adoption
+│   ├── ADR-003: PostgreSQL vs MongoDB
+│   └── ...
+│
+├── 📁 Post-Mortems
+│   ├── INC-2024-001: Payment Outage
+│   ├── INC-2024-002: ...
+│   └── ...
+│
+└── 📁 Research
+    ├── Competitor Analysis
+    ├── Technology Spikes
+    └── Future Planning
+```
+
+### 13.2 Documentation as Code
+
+```yaml
+# ใช้ Docusaurus หรือ GitBook สำหรับ Documentation
+
+# docusaurus.config.js
+module.exports = {
+  title: 'LINE Bot Platform Docs',
+  tagline: 'Internal documentation for LINE OA team',
+  url: 'https://docs.internal.example.com',
+  
+  themeConfig: {
+    navbar: {
+      title: 'LINE Bot Docs',
+      items: [
+        { to: '/docs/intro', label: 'Docs', position: 'left' },
+        { to: '/api', label: 'API Reference', position: 'left' },
+        { to: '/runbooks', label: 'Runbooks', position: 'left' },
+      ],
+    },
+    
+    // Algolia search
+    algolia: {
+      appId: 'XXXXX',
+      apiKey: 'XXXXX',
+      indexName: 'line-bot-docs',
+    },
+  },
+  
+  plugins: [
+    // Auto-generate API docs from OpenAPI spec
+    ['docusaurus-plugin-openapi-docs', {
+      id: 'api',
+      docsPluginId: 'classic',
+      config: {
+        linebot: {
+          specPath: 'openapi/line-bot-api.yaml',
+          outputDir: 'docs/api',
+          sidebarOptions: {
+            groupPathsBy: 'tag',
+          },
+        },
+      },
+    }],
+  ],
+};
+
+# GitHub Action สำหรับ auto-deploy docs
+# .github/workflows/docs.yml
+name: Deploy Documentation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'openapi/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build docs
+        run: npm run docs:build
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs/build
+```
+
+---
+
+## 14. Team Health & Retrospectives
+
+### 14.1 Sprint Retrospective Templates
+
+```markdown
+# Retrospective Template: Start/Stop/Continue
+
+**Sprint:** [Number]
+**Date:** [Date]
+**Facilitator:** [Name]
+**Attendees:** [List]
+
+---
+
+## 🟢 Start (สิ่งที่ควรเริ่มทำ)
+| ข้อเสนอ | Votes | Action Owner | Due |
+|---------|-------|--------------|-----|
+| เพิ่ม Pair Programming สัปดาห์ละ 2 ชั่วโมง | 4 | Tech Lead | Next Sprint |
+| Review performance metrics รายสัปดาห์ | 3 | DevOps | Weekly |
+
+## 🔴 Stop (สิ่งที่ควรหยุดทำ)
+| ข้อเสนอ | Votes | Action |
+|---------|-------|--------|
+| Meeting ที่ไม่มี agenda | 5 | Require agenda 24hr before |
+| Deploy on Friday afternoon | 4 | No deploys after 3pm Friday |
+
+## 🔵 Continue (สิ่งที่ทำดีแล้ว ควรทำต่อ)
+| สิ่งที่ดี | หมายเหตุ |
+|----------|---------|
+| Daily standup ตรงเวลา | เก็บไว้เหมือนเดิม |
+| Code review ภายใน 24 ชั่วโมง | ทำได้ดีมาก |
+
+## Action Items
+| Action | Owner | Due Date |
+|--------|-------|----------|
+| สร้าง Meeting Guidelines | @pm | 2024-01-22 |
+| Update deploy policy | @devops | 2024-01-19 |
+
+## Team Health Score
+1 (Very Unhealthy) - 5 (Very Healthy): **4.2/5**
+
+Previous sprint: 3.8 (+0.4) ✅ Improving!
+```
+
+### 14.2 Team Health Metrics
+
+```typescript
+// Team Health Survey (รายเดือน)
+interface TeamHealthSurvey {
+  surveyDate: Date;
+  respondents: number;
+  
+  scores: {
+    workLifeBalance: number;      // 1-5: พอใจกับ work-life balance
+    learningGrowth: number;       // 1-5: รู้สึกว่าได้เรียนรู้และเติบโต
+    teamCollaboration: number;    // 1-5: การทำงานร่วมกันในทีมดีแค่ไหน
+    processClarity: number;       // 1-5: Process และ expectation ชัดเจน
+    toolsAndEnvironment: number;  // 1-5: Tools และ environment ที่ใช้งาน
+    psychologicalSafety: number;  // 1-5: รู้สึกปลอดภัยที่จะแสดงความเห็น
+    purposeAlignment: number;     // 1-5: เข้าใจและเชื่อมั่นใน mission
+  };
+  
+  openFeedback: string[];
+  
+  overallScore: number;  // Average of all scores
+}
+
+// Example Dashboard
+const healthTrend = [
+  { month: 'Oct', score: 3.8 },
+  { month: 'Nov', score: 4.0 },
+  { month: 'Dec', score: 3.6 },  // Holiday stress
+  { month: 'Jan', score: 4.2 },  // After team building
+];
+
+// Alert if score drops below 3.5
+function checkTeamHealth(currentScore: number): void {
+  if (currentScore < 3.5) {
+    notifyManager('⚠️ Team health score dropped below 3.5. Schedule 1:1s immediately.');
+  } else if (currentScore < 4.0) {
+    notifyManager('📊 Team health at 3.5-4.0. Review open feedback items.');
+  } else {
+    console.log('✅ Team health is good!');
+  }
+}
+```
+
+---
+
+## สรุปบทที่ 99
+
+การสร้างทีมและกระบวนการทำงานที่ดีเป็นรากฐานของ LINE Bot ที่ประสบความสำเร็จ สิ่งสำคัญที่ต้องจำไว้:
+
+1. **คน** คือทรัพยากรที่สำคัญที่สุด - ลงทุนในการพัฒนาทีม
+2. **Process** ต้องเหมาะกับขนาดทีมและบริบทธุรกิจ
+3. **Communication** ที่ชัดเจนช่วยลด misalignment
+4. **Measurement** ทำให้เห็นว่าต้องปรับปรุงที่ไหน
+5. **Culture** ที่ดีช่วยรักษาคนเก่งให้อยู่กับทีม
+6. **Technical Debt** ต้องจัดการอย่างมีระบบ อย่าปล่อยสะสม
+7. **Knowledge** ต้องถ่ายทอดและเก็บรักษาอย่างเป็นระบบ
+8. **Team Health** ต้องติดตามและดูแลอย่างสม่ำเสมอ
+
+ทีมที่ดีไม่ได้สร้างข้ามคืน แต่ต้องลงทุนอย่างต่อเนื่องในระยะยาว
+
+---
+
+*Part 99 จาก 100 - เหลืออีกบทเดียวแล้ว!*

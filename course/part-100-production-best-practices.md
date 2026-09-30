@@ -1,1881 +1,1268 @@
-# ส่วนที่ 100: Production Best Practices และ Capstone Project
+# Part 100: Production Best Practices และ Capstone Project
 
-## 🎓 บทสรุปหลักสูตร LINE OA Development
+## บทนำ - บทสุดท้ายของหลักสูตร
 
----
-
-## สารบัญ
-
-1. [Complete Production Best Practices Checklist](#1-complete-production-best-practices-checklist)
-2. [Pre-launch Checklist (100+ รายการ)](#2-pre-launch-checklist-100-รายการ)
-3. [Go-live Procedures](#3-go-live-procedures)
-4. [Post-launch Monitoring](#4-post-launch-monitoring)
-5. [Performance Optimization Checklist](#5-performance-optimization-checklist)
-6. [Security Hardening Checklist](#6-security-hardening-checklist)
-7. [Disaster Recovery Procedures](#7-disaster-recovery-procedures)
-8. [Business Continuity Planning](#8-business-continuity-planning)
-9. [Scaling Procedures](#9-scaling-procedures)
-10. [Maintenance Windows](#10-maintenance-windows)
-11. [Deprecation Procedures](#11-deprecation-procedures)
-12. [Knowledge Transfer](#12-knowledge-transfer)
-13. [Documentation Requirements](#13-documentation-requirements)
-14. [Complete Production Readiness Review](#14-complete-production-readiness-review)
-15. [Capstone Project: Complete Production LINE Bot System](#15-capstone-project-complete-production-line-bot-system)
-16. [Course Completion Certificate Criteria](#16-course-completion-certificate-criteria)
-17. [What's Next: Advanced Topics Roadmap](#17-whats-next-advanced-topics-roadmap)
+ยินดีด้วยที่เดินทางมาถึงบทที่ 100! บทนี้เป็นบทสรุปของทุกสิ่งที่เรียนมาตลอดหลักสูตร เราจะรวบรวม best practices ทั้งหมดสำหรับการ deploy LINE Bot สู่ production พร้อม capstone project ที่จะนำทุกทักษะมาใช้งานจริง
 
 ---
 
-## 1. Complete Production Best Practices Checklist
+## 1. Pre-Launch Checklist (100+ รายการ)
 
-### 1.1 The Production Mindset
-
-```
-Production Best Practices Framework:
-
-┌─────────────────────────────────────────────────────────────┐
-│              PRODUCTION EXCELLENCE PILLARS                  │
-│                                                             │
-│  🔒 SECURITY      🚀 PERFORMANCE      📊 OBSERVABILITY     │
-│  ├─ Auth          ├─ Caching          ├─ Logging           │
-│  ├─ Encryption    ├─ Indexing         ├─ Metrics           │
-│  ├─ Validation    ├─ CDN              ├─ Tracing           │
-│  └─ Secrets mgmt  └─ Optimization    └─ Alerting          │
-│                                                             │
-│  🛡️ RELIABILITY   💰 COST EFFICIENCY  👥 TEAM PROCESS      │
-│  ├─ Redundancy    ├─ Right-sizing     ├─ Reviews           │
-│  ├─ Failover      ├─ Auto-scaling     ├─ Testing           │
-│  ├─ Backups       ├─ Spot instances   ├─ Documentation     │
-│  └─ DR planning   └─ Reserved        └─ On-call           │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 2. Pre-launch Checklist (100+ รายการ)
-
-### 2.1 LINE Configuration Checklist
+### 1.1 Architecture Checklist
 
 ```
-LINE Platform Configuration:
-══════════════════════════════
-
-Account Setup:
-□ LINE Official Account verified (ถ้าต้องการ blue badge)
-□ Channel Access Token ถูกสร้างและ secure
-□ Channel Secret ถูกเก็บใน environment variables
-□ Webhook URL ตั้งค่าถูกต้อง (HTTPS only)
-□ Webhook verification ผ่าน
-□ Auto-reply messages ปิด (ถ้าใช้ custom bot)
-□ Greeting messages ตั้งค่าแล้ว
-□ Privacy Policy URL ใส่แล้ว
-□ Terms of Service URL ใส่แล้ว
-
-Rich Menu Configuration:
-□ Rich Menu image size ถูกต้อง (2500x1686px)
-□ Rich Menu ทำงานถูกต้องบน iOS
-□ Rich Menu ทำงานถูกต้องบน Android
-□ Default Rich Menu ตั้งค่าแล้ว
-□ Rich Menu switching logic ทำงาน
-
-LIFF Configuration:
-□ LIFF App สร้างแล้วด้วย correct Endpoint URL
-□ LIFF permissions ตั้งค่าถูกต้อง
-□ LIFF ทำงานใน LIFF browser
-□ LIFF ทำงานใน external browser (ถ้าจำเป็น)
-□ liff.init() error handling มีอยู่
-□ Login redirect URI ถูกต้อง
-□ Share target picker ทำงาน (ถ้าใช้)
-
-LINE Pay (ถ้ามี):
-□ LINE Pay sandbox ทดสอบผ่าน
-□ LINE Pay production credentials ถูกต้อง
-□ Payment flow ทดสอบครบทุก scenario
-□ Refund flow ทดสอบแล้ว
-□ Payment webhook handling ถูกต้อง
-```
-
-### 2.2 Security Checklist
-
-```
-Security Checklist:
-═══════════════════
-
-Authentication & Authorization:
-□ ทุก API endpoint ต้องการ authentication (ยกเว้น public endpoints)
-□ JWT secret เป็น strong random string (>= 32 bytes)
-□ JWT expiry ตั้งค่าเหมาะสม (access: 1h, refresh: 7d)
-□ LINE signature verification ทำงานบน webhook
-□ Admin routes ต้องการ admin role
-□ Rate limiting ตั้งค่าบนทุก endpoints
-□ CORS ตั้งค่า whitelist ของ allowed origins
-□ Session management ถูกต้อง
-
-Secrets Management:
-□ ไม่มี secrets ใน source code
-□ ไม่มี secrets ใน git history
-□ Environment variables ถูกต้อง
-□ Secrets manager ใช้ (AWS Secrets Manager, GCP Secret Manager)
-□ .env ไม่ถูก commit (อยู่ใน .gitignore)
-□ Production secrets rotate regularly
-
-Input Validation:
-□ ทุก user input ถูก validate
-□ SQL injection prevention (parameterized queries)
-□ XSS prevention (output encoding)
-□ Command injection prevention
-□ File upload validation (type, size)
-□ JSON payload size limits
-
-Data Protection:
-□ Sensitive data encrypted at rest
-□ TLS 1.2+ บน all connections
-□ Database encryption enabled
-□ PII data handling policy
-□ Data retention policy
-□ PDPA compliance (ถ้า Thai users)
-
-Infrastructure Security:
-□ Firewall rules configured
-□ Security groups restrictive (least privilege)
-□ SSH key-based auth only
-□ Root login disabled
-□ Unnecessary ports closed
-□ Security updates applied
-□ Container images scanned
-□ Kubernetes RBAC configured
-```
-
-### 2.3 Performance Checklist
-
-```
-Performance Checklist:
-══════════════════════
-
-API Performance:
-□ Response time P95 < 500ms
-□ Webhook handler responds < 100ms
-□ Database queries optimized
-□ N+1 queries eliminated
-□ Pagination implemented
-□ Response caching where appropriate
-□ Gzip compression enabled
-
-Database:
-□ Indexes created สำหรับ common queries
-□ Connection pooling configured
-□ Slow query logging enabled
-□ Vacuum/Analyze scheduled (PostgreSQL)
-□ Read replicas สำหรับ analytics queries
-□ Backup performance tested
-
-Caching:
-□ Redis configured correctly
-□ Cache hit rate > 80% สำหรับ common queries
-□ Cache invalidation strategy defined
-□ Cache TTL appropriate
-□ Cache stampede prevention
-
-Frontend/LIFF:
-□ Images optimized (WebP format)
-□ Assets minified (JS/CSS)
-□ Lazy loading implemented
-□ Critical CSS inlined
-□ Third-party scripts deferred
-□ Web Vitals: LCP < 2.5s, FID < 100ms, CLS < 0.1
-
-CDN:
-□ Static assets served via CDN
-□ Cache headers correct
-□ Cache invalidation works
-□ CDN configuration tested
-□ Origin shield configured
-```
-
-### 2.4 Reliability Checklist
-
-```
-Reliability Checklist:
-═══════════════════════
+✅ Architecture Review
 
 High Availability:
-□ No single points of failure
-□ Application runs in >= 2 instances
-□ Load balancer configured
-□ Health check endpoints working
-□ Auto-scaling configured
-□ Graceful shutdown implemented
-□ Zero-downtime deployment tested
+□ Application ทำงานได้ multi-instance (stateless)
+□ Database มี replication (primary + replica)
+□ Cache layer มี replication
+□ Load balancer configured ถูกต้อง
+□ Health checks ทุก service ทำงาน
+□ Circuit breakers implement แล้ว
+□ Graceful shutdown handles แล้ว
 
-Database:
-□ Primary-Replica setup
-□ Failover tested
-□ Backup schedule configured
-□ Backup restore tested
-□ Point-in-time recovery enabled
+Scalability:
+□ Horizontal scaling ทำงานได้
+□ Auto-scaling rules configured
+□ Database connection pooling ตั้งค่าถูก
+□ Cache ลด database load อย่างน้อย 50%
+□ CDN สำหรับ static assets
+□ Async processing สำหรับ heavy operations
 
-Queue/Messaging:
-□ Message queue configured (ถ้าใช้)
-□ Dead letter queue configured
-□ Retry logic implemented
-□ Message deduplication
-
-Error Handling:
-□ All async operations have try/catch
-□ Unhandled rejection handlers
-□ Circuit breakers for external services
-□ Graceful degradation for non-critical features
-□ Error boundaries in LIFF (React)
-
-Monitoring:
-□ Uptime monitoring configured
-□ Error rate alerts set
-□ Performance degradation alerts
-□ Business metrics alerts
-□ PagerDuty/OpsGenie connected
-□ On-call rotation defined
+Resilience:
+□ Retry logic สำหรับ external API calls
+□ Timeout configured ทุก external call
+□ Fallback behavior เมื่อ dependencies down
+□ Data backups ทำงานและ tested
+□ Disaster recovery procedure documented
+□ RTO/RPO defined และ achievable
 ```
 
-### 2.5 Operational Checklist
+### 1.2 Security Checklist
 
 ```
-Operations Checklist:
-═════════════════════
+✅ Security Review
 
-Deployment:
-□ CI/CD pipeline working
-□ Automated tests pass before deploy
-□ Staging environment mirrors production
-□ Deploy rollback tested
-□ Blue-green deployment ready
-□ Feature flags implemented (ถ้าจำเป็น)
+LINE Webhook Security:
+□ Validate LINE signature ทุก request
+□ HTTPS only (TLS 1.2+)
+□ Certificate valid และ auto-renew
+□ Webhook endpoint ไม่ expose internal info
+
+Authentication & Authorization:
+□ LIFF authentication ทำงานถูกต้อง
+□ LINE Login configured
+□ JWT secrets ไม่ hardcoded
+□ Token expiry configured (access: 1h, refresh: 30d)
+□ Role-based access control implement
+
+Data Security:
+□ Sensitive data encrypted at rest
+□ Sensitive data encrypted in transit
+□ PII data ไม่ถูก log
+□ Database credentials ใน secrets manager
+□ API keys ใน environment variables ไม่ใช่ code
+□ .env files อยู่ใน .gitignore
+
+Infrastructure Security:
+□ Security groups/firewall rules ตั้งค่าถูก
+□ Principle of least privilege สำหรับ IAM
+□ VPC/network segmentation
+□ WAF enabled (ถ้าจำเป็น)
+□ DDoS protection
+□ Regular security patches
+
+Compliance:
+□ PDPA compliance สำหรับ Thai users
+□ Privacy policy updated
+□ Cookie consent (ถ้ามี web component)
+□ Data retention policy documented
+□ User data deletion capability
+```
+
+### 1.3 Performance Checklist
+
+```
+✅ Performance Review
+
+Response Times:
+□ Webhook handler P95 < 500ms
+□ LIFF pages load < 3 seconds on mobile
+□ Database queries P95 < 100ms
+□ Cache hit rate > 80%
+□ LINE API calls P95 < 1 second
+
+Load Testing Results:
+□ Load test ผ่านที่ expected peak traffic
+□ Stress test ระบุ breaking point
+□ Soak test (24h) ไม่มี memory leaks
+□ Latency stable ภายใต้ load
+
+Optimization:
+□ Database indexes ครอบคลุม queries หลัก
+□ N+1 queries แก้ไขแล้ว
+□ Images optimized และผ่าน CDN
+□ Caching headers ตั้งค่าถูก
+□ Gzip compression enabled
+□ Connection keep-alive enabled
+```
+
+### 1.4 Monitoring Checklist
+
+```
+✅ Monitoring Review
+
+Metrics:
+□ Application metrics (request rate, error rate, latency)
+□ Business metrics (orders, revenue, active users)
+□ LINE API quota monitoring
+□ Infrastructure metrics (CPU, memory, disk)
+□ Database metrics (connections, query time, replication lag)
+□ Kafka consumer lag
+
+Alerting:
+□ P1 alerts สำหรับ critical issues
+□ P2 alerts สำหรับ important issues
+□ Alert fatigue ไม่มี (ไม่มี noise alerts)
+□ On-call rotation configured
+□ Escalation policy defined
 
 Logging:
 □ Structured logging (JSON format)
-□ Log levels configured correctly
-□ Sensitive data not logged
-□ Log aggregation configured
-□ Log retention policy
-□ Log search and filtering works
+□ Log levels appropriate (no debug in production)
+□ Correlation IDs ใน logs
+□ PII ไม่อยู่ใน logs
+□ Log retention policy (30 days minimum)
+□ Log search ทำได้รวดเร็ว
 
-Monitoring & Alerting:
-□ Application metrics collected
-□ Infrastructure metrics collected
-□ LINE-specific metrics (quota usage, etc.)
-□ Business metrics dashboard
-□ Alerts configured with runbooks
-□ False positive alert rate minimized
-□ Alert routing correct
+Dashboards:
+□ Real-time status dashboard
+□ Business KPI dashboard
+□ Infrastructure health dashboard
+□ Error tracking dashboard (Sentry)
+□ Accessible to stakeholders
+```
 
-Runbooks:
-□ Common issues have runbooks
-□ Escalation procedures documented
-□ Contact directory updated
-□ Runbooks tested
+### 1.5 Testing Checklist
 
-Documentation:
-□ Architecture diagram updated
-□ API documentation complete
-□ Deployment guide updated
-□ Troubleshooting guide exists
-□ Configuration reference updated
+```
+✅ Testing Review
 
-Compliance:
-□ Privacy policy updated
-□ Cookie policy (ถ้ามี web pages)
-□ Terms of service updated
-□ Data processing agreement
-□ PDPA compliance documented
+Unit Tests:
+□ Coverage > 80%
+□ Critical paths 100% coverage
+□ LINE message handlers tested
+□ Business logic tested
+□ Error scenarios tested
+
+Integration Tests:
+□ LINE webhook integration tests
+□ Database integration tests
+□ External API mocks configured
+□ End-to-end flows tested
+
+Performance Tests:
+□ Load test results documented
+□ Stress test results documented
+□ Soak test completed (min 4 hours)
+
+User Acceptance:
+□ QA sign-off
+□ Stakeholder demo completed
+□ LINE OA account tested on real device
+□ iOS testing
+□ Android testing
+□ LIFF tested in LINE app
 ```
 
 ---
 
-## 3. Go-live Procedures
+## 2. Go-Live Procedure
 
-### 3.1 Go-live Checklist
+### 2.1 Deployment Plan Template
 
+```markdown
+# Production Deployment Plan
+Service: LINE Bot v[X.Y.Z]
+Date: [DD/MM/YYYY]
+Time: [HH:MM] ICT
+Duration: ~[N] hours
+
+## Deployment Team
+- Deployment Lead: [ชื่อ]
+- QA: [ชื่อ]
+- On-Call: [ชื่อ]
+- Rollback Contact: [ชื่อ]
+
+## Pre-Deployment Steps (2 hours before)
+
+1. [ ] Final code review completed
+2. [ ] Staging deployment verified
+3. [ ] Database migration tested on staging
+4. [ ] Rollback plan reviewed
+5. [ ] Team notified in #line-deployments
+6. [ ] Monitoring dashboards ready
+
+## Deployment Steps
+
+### Phase 1: Database Migration (T-30 min)
+1. [ ] Backup production database
+2. [ ] Run migration scripts
+3. [ ] Verify migration successful
+4. [ ] Test backward compatibility
+
+### Phase 2: Application Deployment (T=0)
+1. [ ] Update Docker image tags
+2. [ ] Deploy to 1 instance (canary)
+3. [ ] Monitor error rate for 5 minutes
+4. [ ] If healthy: deploy remaining instances
+5. [ ] Verify health checks pass
+6. [ ] Verify LINE webhook responding
+
+### Phase 3: Verification (T+15 min)
+1. [ ] Test follow event
+2. [ ] Test message reply
+3. [ ] Test LIFF app
+4. [ ] Check metrics are normal
+5. [ ] QA sign-off
+
+## Go/No-Go Decision Criteria
+✅ GO if:
+- Error rate < 1%
+- P95 latency < 500ms
+- All health checks passing
+- QA verified
+
+❌ NO-GO if:
+- Error rate > 5%
+- P95 latency > 2 seconds
+- Any health check failing
+- Critical bugs found
+
+## Rollback Procedure
+If No-Go:
+1. kubectl rollout undo deployment/line-bot
+2. Verify rollback successful
+3. Notify team
+4. Schedule post-mortem
+
+## Post-Deployment Monitoring (2 hours)
+- [ ] Error rate < 1%
+- [ ] Response time normal
+- [ ] LINE API quota normal
+- [ ] No alerts firing
 ```
-Go-live Day Procedures:
-═══════════════════════
 
-D-7 (หนึ่งสัปดาห์ก่อน):
-□ Final staging testing complete
-□ Load testing done (simulate peak traffic)
-□ Rollback plan documented
-□ Communication plan ready
-□ Support team briefed
-□ Monitoring dashboards ready
-
-D-3:
-□ Production environment verified
-□ SSL certificates valid
-□ DNS configuration verified
-□ Final security scan
-□ Backup systems verified
-□ On-call person briefed
-
-D-1:
-□ Final code freeze (ยกเว้น critical bugs)
-□ Pre-production smoke test
-□ Data migration dry-run (ถ้ามี)
-□ Communication to stakeholders sent
-□ War room setup (ถ้าเป็น major launch)
-
-D-Day:
-□ All hands available
-□ Monitoring dashboards open
-□ Deployment window confirmed
-□ Rollback criteria defined
-
-Post Go-live (D+1 to D+7):
-□ Intensive monitoring
-□ User feedback collection
-□ Performance baseline established
-□ Documentation of any issues
-□ Retrospective meeting scheduled
-```
-
-### 3.2 Deployment Script
+### 2.2 Zero-Downtime Deployment Script
 
 ```bash
 #!/bin/bash
 # scripts/deploy-production.sh
 
-set -e  # Exit on any error
+set -e
+set -u
 
-ENVIRONMENT="production"
-VERSION=$(cat package.json | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])")
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+NAMESPACE="line-bot"
+DEPLOYMENT="webhook-handler"
+IMAGE_TAG=$1
 
-echo "======================================"
-echo "Production Deployment: v${VERSION}"
-echo "Timestamp: ${TIMESTAMP}"
-echo "======================================"
+if [ -z "$IMAGE_TAG" ]; then
+  echo "Usage: ./deploy-production.sh <image-tag>"
+  exit 1
+fi
 
-# 1. Pre-deployment checks
-echo "Running pre-deployment checks..."
+echo "🚀 Starting production deployment..."
+echo "Image: ${IMAGE_TAG}"
 
-# Check environment variables
-required_vars=(
-  "LINE_CHANNEL_ACCESS_TOKEN"
-  "LINE_CHANNEL_SECRET"
-  "DATABASE_URL"
-  "REDIS_URL"
-  "JWT_SECRET"
-)
-
-for var in "${required_vars[@]}"; do
-  if [ -z "${!var}" ]; then
-    echo "ERROR: Required environment variable $var is not set"
+# Pre-deployment checks
+pre_deployment_checks() {
+  echo "Running pre-deployment checks..."
+  
+  # Check cluster connection
+  kubectl cluster-info > /dev/null 2>&1 || {
+    echo "❌ Cannot connect to cluster"
+    exit 1
+  }
+  
+  # Check current deployment health
+  READY=$(kubectl get deployment/${DEPLOYMENT} -n ${NAMESPACE} \
+    -o jsonpath='{.status.readyReplicas}')
+  DESIRED=$(kubectl get deployment/${DEPLOYMENT} -n ${NAMESPACE} \
+    -o jsonpath='{.spec.replicas}')
+  
+  if [ "$READY" != "$DESIRED" ]; then
+    echo "❌ Current deployment not healthy: ${READY}/${DESIRED}"
     exit 1
   fi
-done
-echo "✓ Environment variables OK"
+  
+  echo "✅ Pre-deployment checks passed"
+}
 
-# Check database connectivity
-if ! psql "$DATABASE_URL" -c "SELECT 1" > /dev/null 2>&1; then
-  echo "ERROR: Cannot connect to database"
-  exit 1
-fi
-echo "✓ Database connectivity OK"
+# Deploy with rolling update
+rolling_deploy() {
+  echo "Updating image to ${IMAGE_TAG}..."
+  
+  kubectl set image deployment/${DEPLOYMENT} \
+    ${DEPLOYMENT}=gcr.io/project/line-bot:${IMAGE_TAG} \
+    -n ${NAMESPACE}
+  
+  # Wait for rollout
+  kubectl rollout status deployment/${DEPLOYMENT} -n ${NAMESPACE} \
+    --timeout=5m
+  
+  echo "✅ Deployment successful"
+}
 
-# Check Redis connectivity
-if ! redis-cli -u "$REDIS_URL" ping > /dev/null 2>&1; then
-  echo "ERROR: Cannot connect to Redis"
-  exit 1
-fi
-echo "✓ Redis connectivity OK"
+# Verify deployment
+verify_deployment() {
+  echo "Verifying deployment..."
+  sleep 30  # Wait for pods to stabilize
+  
+  # Check health endpoint
+  HEALTH=$(curl -s -o /dev/null -w "%{http_code}" \
+    https://api.yourapp.com/health)
+  
+  if [ "$HEALTH" != "200" ]; then
+    echo "❌ Health check failed: HTTP ${HEALTH}"
+    return 1
+  fi
+  
+  # Check error rate (using metrics API)
+  ERROR_RATE=$(curl -s "http://prometheus:9090/api/v1/query?query=\
+    rate(http_requests_total{status=~'5..'}[5m])" | \
+    python3 -c "import sys,json; d=json.load(sys.stdin); \
+    print(d['data']['result'][0]['value'][1] if d['data']['result'] else '0')")
+  
+  if (( $(echo "$ERROR_RATE > 0.05" | bc -l) )); then
+    echo "❌ Error rate too high: ${ERROR_RATE}"
+    return 1
+  fi
+  
+  echo "✅ Deployment verified successfully"
+}
 
-# 2. Create backup
-echo "Creating database backup..."
-BACKUP_FILE="backup_${TIMESTAMP}.sql"
-pg_dump "$DATABASE_URL" > "/backups/${BACKUP_FILE}"
-echo "✓ Backup created: /backups/${BACKUP_FILE}"
+# Rollback if needed
+rollback() {
+  echo "⚠️  Rolling back deployment..."
+  kubectl rollout undo deployment/${DEPLOYMENT} -n ${NAMESPACE}
+  kubectl rollout status deployment/${DEPLOYMENT} -n ${NAMESPACE}
+  echo "✅ Rollback completed"
+  
+  # Notify team
+  curl -s -X POST "$SLACK_WEBHOOK" \
+    -H 'Content-type: application/json' \
+    -d "{\"text\":\"⚠️ LINE Bot deployment ROLLED BACK to previous version\"}"
+}
 
-# 3. Run database migrations
-echo "Running database migrations..."
-npm run db:migrate
-echo "✓ Migrations complete"
+# Main deployment flow
+main() {
+  pre_deployment_checks
+  rolling_deploy
+  
+  if ! verify_deployment; then
+    echo "Deployment verification failed!"
+    rollback
+    exit 1
+  fi
+  
+  # Notify success
+  curl -s -X POST "$SLACK_WEBHOOK" \
+    -H 'Content-type: application/json' \
+    -d "{\"text\":\"✅ LINE Bot deployed successfully: ${IMAGE_TAG}\"}"
+  
+  echo "🎉 Production deployment complete!"
+}
 
-# 4. Build application
-echo "Building application..."
-npm run build
-echo "✓ Build complete"
-
-# 5. Deploy using blue-green strategy
-echo "Deploying to production (blue-green)..."
-
-CURRENT_COLOR=$(kubectl get service line-bot-service \
-  -o jsonpath='{.spec.selector.color}' 2>/dev/null || echo "blue")
-
-NEW_COLOR=$([ "$CURRENT_COLOR" = "blue" ] && echo "green" || echo "blue")
-
-echo "Current: $CURRENT_COLOR -> New: $NEW_COLOR"
-
-# Deploy new version
-kubectl set image deployment/line-bot-${NEW_COLOR} \
-  line-bot=your-registry/line-bot:${VERSION}
-
-# Wait for rollout
-kubectl rollout status deployment/line-bot-${NEW_COLOR} --timeout=300s
-echo "✓ New version deployed"
-
-# 6. Smoke tests
-echo "Running smoke tests..."
-
-NEW_ENDPOINT=$(kubectl get service line-bot-${NEW_COLOR}-internal \
-  -o jsonpath='{.spec.clusterIP}')
-
-# Test health endpoint
-HEALTH_RESPONSE=$(curl -sf "http://${NEW_ENDPOINT}/health" || echo "FAILED")
-if [ "$HEALTH_RESPONSE" = "FAILED" ]; then
-  echo "ERROR: Health check failed on new version"
-  kubectl rollout undo deployment/line-bot-${NEW_COLOR}
-  exit 1
-fi
-
-# Test webhook endpoint
-WEBHOOK_RESPONSE=$(curl -sf -o /dev/null -w "%{http_code}" \
-  -X POST "http://${NEW_ENDPOINT}/webhook" \
-  -H "Content-Type: application/json" \
-  -H "x-line-signature: test" \
-  -d '{"events":[]}')
-
-if [ "$WEBHOOK_RESPONSE" != "200" ]; then
-  echo "ERROR: Webhook endpoint check failed (HTTP $WEBHOOK_RESPONSE)"
-  kubectl rollout undo deployment/line-bot-${NEW_COLOR}
-  exit 1
-fi
-
-echo "✓ Smoke tests passed"
-
-# 7. Switch traffic
-echo "Switching traffic to new version..."
-kubectl patch service line-bot-service \
-  -p '{"spec":{"selector":{"color":"'${NEW_COLOR}'"}}}'
-echo "✓ Traffic switched to $NEW_COLOR"
-
-# 8. Post-deployment verification
-echo "Waiting 30 seconds for monitoring..."
-sleep 30
-
-# Check error rate
-ERROR_RATE=$(curl -sf "http://prometheus:9090/api/v1/query" \
-  --data-urlencode 'query=rate(http_requests_total{status="5xx"}[1m])/rate(http_requests_total[1m])' \
-  | python3 -c "import sys,json; data=json.load(sys.stdin); print(data['data']['result'][0]['value'][1] if data['data']['result'] else '0')")
-
-if (( $(echo "$ERROR_RATE > 0.05" | bc -l) )); then
-  echo "ERROR: High error rate detected: ${ERROR_RATE}"
-  echo "Rolling back..."
-  kubectl patch service line-bot-service \
-    -p '{"spec":{"selector":{"color":"'${CURRENT_COLOR}'"}}}'
-  exit 1
-fi
-
-echo "✓ Error rate acceptable: ${ERROR_RATE}"
-
-# 9. Cleanup old version
-echo "Cleanup old version in 10 minutes..."
-sleep 600
-kubectl scale deployment/line-bot-${CURRENT_COLOR} --replicas=0
-echo "✓ Old version scaled down"
-
-echo ""
-echo "======================================"
-echo "Deployment SUCCESSFUL!"
-echo "Version: v${VERSION}"
-echo "Color: ${NEW_COLOR}"
-echo "Timestamp: ${TIMESTAMP}"
-echo "======================================"
-
-# Send notification
-curl -sf -X POST "$SLACK_WEBHOOK_URL" \
-  -H "Content-Type: application/json" \
-  -d "{\"text\": \"✅ LINE Bot v${VERSION} deployed successfully to production\"}"
+main
 ```
 
 ---
 
-## 4. Post-launch Monitoring
+## 3. Post-Launch Monitoring
 
-### 4.1 Monitoring Dashboard Setup
+### 3.1 Real-time Monitoring Setup
 
-```javascript
-// src/monitoring/productionMonitor.js
-const prometheus = require('prom-client');
-const Redis = require('ioredis');
+```typescript
+// monitoring/production-monitor.ts
+import * as Prometheus from 'prom-client';
+import { logger } from '../utils/logger';
 
-class ProductionMonitor {
-  constructor() {
-    // Register metrics
-    this.webhookRequestsTotal = new prometheus.Counter({
-      name: 'line_bot_webhook_requests_total',
-      help: 'Total LINE webhook requests',
-      labelNames: ['event_type', 'status'],
-    });
+// Custom metrics สำหรับ LINE Bot
+const metrics = {
+  // Webhook metrics
+  webhookEventsTotal: new Prometheus.Counter({
+    name: 'line_webhook_events_total',
+    help: 'Total LINE webhook events received',
+    labelNames: ['event_type', 'source_type'],
+  }),
+  
+  webhookProcessingDuration: new Prometheus.Histogram({
+    name: 'line_webhook_processing_duration_seconds',
+    help: 'Webhook event processing duration',
+    labelNames: ['event_type'],
+    buckets: [0.01, 0.05, 0.1, 0.3, 0.5, 1, 2, 5],
+  }),
+  
+  // LINE API metrics
+  lineApiCallsTotal: new Prometheus.Counter({
+    name: 'line_api_calls_total',
+    help: 'Total LINE API calls made',
+    labelNames: ['method', 'status'],
+  }),
+  
+  lineApiDuration: new Prometheus.Histogram({
+    name: 'line_api_duration_seconds',
+    help: 'LINE API call duration',
+    labelNames: ['method'],
+    buckets: [0.1, 0.3, 0.5, 1, 2, 5, 10],
+  }),
+  
+  // Business metrics
+  ordersCreated: new Prometheus.Counter({
+    name: 'business_orders_created_total',
+    help: 'Total orders created via LINE',
+    labelNames: ['payment_method'],
+  }),
+  
+  activeUsers: new Prometheus.Gauge({
+    name: 'business_active_users_current',
+    help: 'Current active users',
+  }),
+  
+  messagesSent: new Prometheus.Counter({
+    name: 'line_messages_sent_total',
+    help: 'Total messages sent via LINE',
+    labelNames: ['message_type', 'send_type'],
+  }),
+};
 
-    this.webhookResponseTime = new prometheus.Histogram({
-      name: 'line_bot_webhook_response_seconds',
-      help: 'Webhook response time',
-      buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
-    });
-
-    this.lineApiCallsTotal = new prometheus.Counter({
-      name: 'line_bot_api_calls_total',
-      help: 'Total LINE API calls',
-      labelNames: ['method', 'status'],
-    });
-
-    this.messageQuotaGauge = new prometheus.Gauge({
-      name: 'line_bot_message_quota_remaining',
-      help: 'Remaining LINE message quota',
-    });
-
-    this.activeUsersGauge = new prometheus.Gauge({
-      name: 'line_bot_active_users',
-      help: 'Currently active users (connected via WebSocket)',
-    });
-
-    this.ordersPendingGauge = new prometheus.Gauge({
-      name: 'line_bot_orders_pending',
-      help: 'Number of pending orders',
-    });
-
-    this.cacheHitRate = new prometheus.Gauge({
-      name: 'line_bot_cache_hit_rate',
-      help: 'Redis cache hit rate',
-    });
-
-    // Start collection
-    prometheus.collectDefaultMetrics({ prefix: 'line_bot_' });
-    this.startMetricsCollection();
-  }
-
-  trackWebhook(eventType, startTime, success) {
-    const duration = (Date.now() - startTime) / 1000;
-    this.webhookRequestsTotal.labels(eventType, success ? 'success' : 'error').inc();
-    this.webhookResponseTime.observe(duration);
-  }
-
-  trackApiCall(method, success) {
-    this.lineApiCallsTotal.labels(method, success ? 'success' : 'error').inc();
-  }
-
-  async startMetricsCollection() {
-    setInterval(async () => {
-      await this.collectBusinessMetrics();
-    }, 30000); // ทุก 30 วินาที
-  }
-
-  async collectBusinessMetrics() {
-    try {
-      // Quota usage
-      const quota = await this.getMessageQuota();
-      this.messageQuotaGauge.set(quota.remaining);
-
-      // Cache metrics
-      const cacheStats = await this.getCacheStats();
-      this.cacheHitRate.set(cacheStats.hitRate);
-
-    } catch (error) {
-      console.error('Error collecting metrics:', error);
-    }
-  }
-
-  async getMessageQuota() {
-    // ดึงจาก LINE API หรือ cache
-    return { remaining: 25000 };
-  }
-
-  async getCacheStats() {
-    const redis = new Redis(process.env.REDIS_URL);
-    const info = await redis.info('stats');
-    const hits = parseInt(info.match(/keyspace_hits:(\d+)/)?.[1] || 0);
-    const misses = parseInt(info.match(/keyspace_misses:(\d+)/)?.[1] || 0);
-    const total = hits + misses;
-    redis.quit();
-    return { hitRate: total > 0 ? hits / total : 0 };
-  }
-
-  getMetrics() {
-    return prometheus.register.metrics();
-  }
+// Middleware สำหรับ tracking webhooks
+export function trackWebhookEvent(eventType: string, sourceType: string) {
+  return (target: any, key: string, descriptor: PropertyDescriptor) => {
+    const original = descriptor.value;
+    
+    descriptor.value = async function (...args: any[]) {
+      const end = metrics.webhookProcessingDuration
+        .startTimer({ event_type: eventType });
+      
+      metrics.webhookEventsTotal.inc({
+        event_type: eventType,
+        source_type: sourceType,
+      });
+      
+      try {
+        const result = await original.apply(this, args);
+        return result;
+      } finally {
+        end();
+      }
+    };
+    
+    return descriptor;
+  };
 }
 
-module.exports = new ProductionMonitor();
+// Health check endpoint
+export function setupHealthCheck(app: any) {
+  app.get('/health', async (req: any, res: any) => {
+    const checks = await runHealthChecks();
+    const isHealthy = Object.values(checks).every(c => c.status === 'healthy');
+    
+    res.status(isHealthy ? 200 : 503).json({
+      status: isHealthy ? 'healthy' : 'unhealthy',
+      timestamp: new Date().toISOString(),
+      version: process.env.APP_VERSION,
+      checks,
+    });
+  });
+  
+  app.get('/ready', async (req: any, res: any) => {
+    const ready = await checkReadiness();
+    res.status(ready ? 200 : 503).json({ ready });
+  });
+  
+  app.get('/metrics', async (req: any, res: any) => {
+    res.set('Content-Type', Prometheus.register.contentType);
+    res.end(await Prometheus.register.metrics());
+  });
+}
+
+async function runHealthChecks(): Promise<Record<string, any>> {
+  const results: Record<string, any> = {};
+  
+  // Database check
+  try {
+    await db.query('SELECT 1');
+    results.database = { status: 'healthy' };
+  } catch (error: any) {
+    results.database = { status: 'unhealthy', error: error.message };
+  }
+  
+  // Redis check
+  try {
+    await redis.ping();
+    results.redis = { status: 'healthy' };
+  } catch (error: any) {
+    results.redis = { status: 'unhealthy', error: error.message };
+  }
+  
+  // Kafka check
+  try {
+    const kafkaConnected = await checkKafkaConnection();
+    results.kafka = { status: kafkaConnected ? 'healthy' : 'unhealthy' };
+  } catch (error: any) {
+    results.kafka = { status: 'unhealthy', error: error.message };
+  }
+  
+  return results;
+}
 ```
 
-### 4.2 SLO/SLA Definition
+### 3.2 SLA Monitoring
+
+```typescript
+// monitoring/sla-monitor.ts
+
+export class SLAMonitor {
+  private slos = {
+    availability: 99.9,          // 99.9% uptime
+    webhookLatency: 500,          // P95 < 500ms
+    errorRate: 1,                 // < 1% errors
+    lineApiSuccessRate: 99,       // 99% LINE API success
+  };
+
+  async calculateCurrentSLO(window: string = '30d'): Promise<SLOReport> {
+    const [
+      availability,
+      webhookLatencyP95,
+      errorRate,
+      lineApiSuccessRate,
+    ] = await Promise.all([
+      this.calculateAvailability(window),
+      this.calculateWebhookLatencyP95(window),
+      this.calculateErrorRate(window),
+      this.calculateLineApiSuccessRate(window),
+    ]);
+
+    const report: SLOReport = {
+      period: window,
+      calculatedAt: new Date().toISOString(),
+      slos: {
+        availability: {
+          target: this.slos.availability,
+          current: availability,
+          meeting: availability >= this.slos.availability,
+          errorBudgetRemaining: this.calculateErrorBudget(
+            availability,
+            this.slos.availability,
+            window
+          ),
+        },
+        webhookLatency: {
+          target: this.slos.webhookLatency,
+          current: webhookLatencyP95,
+          meeting: webhookLatencyP95 <= this.slos.webhookLatency,
+        },
+        errorRate: {
+          target: this.slos.errorRate,
+          current: errorRate,
+          meeting: errorRate <= this.slos.errorRate,
+        },
+        lineApiSuccessRate: {
+          target: this.slos.lineApiSuccessRate,
+          current: lineApiSuccessRate,
+          meeting: lineApiSuccessRate >= this.slos.lineApiSuccessRate,
+        },
+      },
+    };
+
+    return report;
+  }
+
+  private calculateErrorBudget(
+    current: number,
+    target: number,
+    window: string
+  ): ErrorBudget {
+    const windowHours = this.parseWindowToHours(window);
+    const totalMinutes = windowHours * 60;
+    const allowedDowntimeMinutes = totalMinutes * (1 - target / 100);
+    const actualDowntimeMinutes = totalMinutes * (1 - current / 100);
+    const remainingMinutes = allowedDowntimeMinutes - actualDowntimeMinutes;
+
+    return {
+      totalMinutes: allowedDowntimeMinutes,
+      usedMinutes: actualDowntimeMinutes,
+      remainingMinutes,
+      percentageUsed: (actualDowntimeMinutes / allowedDowntimeMinutes) * 100,
+    };
+  }
+
+  private parseWindowToHours(window: string): number {
+    const match = window.match(/(\d+)([dhm])/);
+    if (!match) return 720; // default 30 days
+    
+    const value = parseInt(match[1]);
+    switch (match[2]) {
+      case 'd': return value * 24;
+      case 'h': return value;
+      case 'm': return value / 60;
+      default: return 720;
+    }
+  }
+}
+```
+
+---
+
+## 4. Scaling Playbook
+
+### 4.1 When to Scale
+
+```
+Scaling Decision Matrix:
+
+Metric                    | Action
+--------------------------|------------------------------------------
+CPU > 70% sustained       | Scale out (add instances)
+Memory > 80%              | Scale out or increase instance size
+DB connections > 80% max  | Scale out or use connection proxy
+Kafka lag > 10,000        | Scale out consumers
+LINE API approaching limit | Optimize message sending or upgrade plan
+Error rate > 5%           | Investigate before scaling
+Response time P95 > 1s    | Profile and optimize first
+
+Scaling Rules:
+1. ลอง vertical scale ก่อน (cheaper for databases)
+2. Horizontal scale สำหรับ stateless services
+3. ทำ load test ก่อน scaling decision
+4. Monitor 24h หลัง scaling
+```
+
+### 4.2 Kubernetes Scaling Configuration
 
 ```yaml
-# monitoring/slo-config.yml
-slos:
-  # LINE Bot Availability
-  - name: webhook_availability
-    description: "Webhook endpoint responds successfully"
-    metric: "line_bot_webhook_requests_total"
-    objective: 99.9  # 99.9% success rate
-    window: "30d"
-    error_budget_policy: "burn_rate"
-    
-  # Response Time
-  - name: webhook_latency
-    description: "Webhook responds within 200ms"
-    metric: "line_bot_webhook_response_seconds"
-    objective: 95  # 95% of requests < 200ms
-    threshold: 0.2  # 200ms
-    window: "7d"
-    
-  # Message Delivery
-  - name: message_delivery
-    description: "Push messages delivered successfully"
-    metric: "line_bot_api_calls_total{method='push'}"
-    objective: 99.5  # 99.5% success
-    window: "7d"
-    
-  # LIFF Availability
-  - name: liff_availability
-    description: "LIFF pages load successfully"
-    metric: "http_requests_total{path=~'/liff/.*'}"
-    objective: 99.5
-    window: "30d"
-
-alerts:
-  - name: SLOBurnRateHigh
-    condition: "error_rate > 5x budget_burn_rate"
-    for: "1h"
-    severity: critical
-    
-  - name: SLOBurnRateMedium
-    condition: "error_rate > 2x budget_burn_rate"
-    for: "4h"
-    severity: warning
+# k8s/hpa-webhook-handler.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: webhook-handler-hpa
+  namespace: line-bot
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: webhook-handler
+  
+  minReplicas: 2
+  maxReplicas: 20
+  
+  metrics:
+  # Scale based on CPU
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  
+  # Scale based on memory
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  
+  # Scale based on custom metric (requests per second)
+  - type: External
+    external:
+      metric:
+        name: line_webhook_events_per_second
+        selector:
+          matchLabels:
+            service: webhook-handler
+      target:
+        type: AverageValue
+        averageValue: "50"
+  
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Pods
+        value: 4       # เพิ่มทีละ 4 pods
+        periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300  # รอ 5 นาทีก่อนลด
+      policies:
+      - type: Pods
+        value: 2       # ลดทีละ 2 pods
+        periodSeconds: 120
 ```
 
 ---
 
-## 5. Performance Optimization Checklist
+## 5. Disaster Recovery
 
-### 5.1 Performance Testing
-
-```javascript
-// tests/performance/loadTest.js
-const { check } = require('k6');
-const http = require('k6/http');
-const { sleep } = require('k6');
-
-export const options = {
-  stages: [
-    { duration: '2m', target: 10 },   // Ramp up to 10 users
-    { duration: '5m', target: 50 },   // Ramp up to 50 users
-    { duration: '5m', target: 100 },  // Peak load: 100 users
-    { duration: '2m', target: 0 },    // Ramp down
-  ],
-  thresholds: {
-    'http_req_duration': ['p(95)<500'],  // 95% < 500ms
-    'http_req_failed': ['rate<0.01'],    // Error rate < 1%
-  },
-};
-
-const BASE_URL = 'https://your-api.com';
-const TOKEN = __ENV.API_TOKEN;
-
-export default function () {
-  const headers = {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${TOKEN}`,
-  };
-
-  // Test 1: Health check
-  const healthRes = http.get(`${BASE_URL}/health`);
-  check(healthRes, {
-    'health check OK': (r) => r.status === 200,
-  });
-
-  // Test 2: User profile
-  const profileRes = http.get(`${BASE_URL}/api/users/profile`, { headers });
-  check(profileRes, {
-    'profile loaded': (r) => r.status === 200,
-    'profile has data': (r) => JSON.parse(r.body).userId !== undefined,
-  });
-
-  // Test 3: Order history
-  const ordersRes = http.get(`${BASE_URL}/api/orders?limit=10`, { headers });
-  check(ordersRes, {
-    'orders loaded': (r) => r.status === 200,
-  });
-
-  // Test 4: Simulate webhook
-  const webhookPayload = JSON.stringify({
-    destination: 'U1234567890',
-    events: [{
-      type: 'message',
-      source: { type: 'user', userId: 'U1234567890' },
-      message: { type: 'text', text: 'Hello' },
-      replyToken: 'test-reply-token',
-      timestamp: Date.now(),
-    }],
-  });
-
-  // Note: ในจริงไม่ควร test webhook โดยตรงเพราะต้องมี LINE signature
-  // แต่สามารถ test internal message processing endpoint ได้
-
-  sleep(1); // Think time
-}
-
-export function handleSummary(data) {
-  return {
-    'performance-report.html': htmlReport(data),
-    stdout: textSummary(data, { indent: ' ', enableColors: true }),
-  };
-}
-```
-
----
-
-## 6. Security Hardening Checklist
-
-### 6.1 Security Hardening Script
-
-```bash
-#!/bin/bash
-# scripts/security-hardening.sh
-
-echo "Running security hardening..."
-
-# 1. Update all packages
-apt-get update && apt-get upgrade -y
-
-# 2. Install and configure ufw firewall
-apt-get install -y ufw
-ufw default deny incoming
-ufw default allow outgoing
-ufw allow 22/tcp    # SSH
-ufw allow 80/tcp    # HTTP
-ufw allow 443/tcp   # HTTPS
-ufw enable
-
-# 3. Configure fail2ban
-apt-get install -y fail2ban
-cat > /etc/fail2ban/jail.local << EOF
-[DEFAULT]
-maxretry = 5
-bantime = 3600
-
-[sshd]
-enabled = true
-port = ssh
-logpath = /var/log/auth.log
-EOF
-systemctl restart fail2ban
-
-# 4. Disable unnecessary services
-systemctl disable bluetooth
-systemctl disable cups
-
-# 5. Secure shared memory
-echo "tmpfs /run/shm tmpfs defaults,noexec,nosuid 0 0" >> /etc/fstab
-
-# 6. Set password policies
-cat > /etc/security/pwquality.conf << EOF
-minlen = 12
-minclass = 3
-maxrepeat = 3
-EOF
-
-# 7. Configure sysctl security settings
-cat >> /etc/sysctl.conf << EOF
-# IP Spoofing protection
-net.ipv4.conf.all.rp_filter = 1
-net.ipv4.conf.default.rp_filter = 1
-
-# Ignore ICMP redirects
-net.ipv4.conf.all.accept_redirects = 0
-net.ipv6.conf.all.accept_redirects = 0
-
-# Ignore send redirects
-net.ipv4.conf.all.send_redirects = 0
-
-# Disable IP source routing
-net.ipv4.conf.all.accept_source_route = 0
-
-# Log Martians
-net.ipv4.conf.all.log_martians = 1
-EOF
-sysctl -p
-
-echo "✓ Security hardening complete"
-```
-
-### 6.2 Security Audit Automation
-
-```javascript
-// src/security/securityAudit.js
-const https = require('https');
-const { execSync } = require('child_process');
-
-class SecurityAuditService {
-  async runFullAudit() {
-    const results = {
-      timestamp: new Date().toISOString(),
-      findings: [],
-      score: 100,
-    };
-
-    // 1. Dependency vulnerabilities
-    const npmAudit = await this.checkNpmVulnerabilities();
-    results.findings.push(...npmAudit);
-
-    // 2. Configuration checks
-    const configChecks = await this.checkConfiguration();
-    results.findings.push(...configChecks);
-
-    // 3. SSL/TLS checks
-    const sslChecks = await this.checkSSL();
-    results.findings.push(...sslChecks);
-
-    // 4. Headers security
-    const headerChecks = await this.checkSecurityHeaders();
-    results.findings.push(...headerChecks);
-
-    // Calculate score
-    const criticalCount = results.findings.filter(f => f.severity === 'critical').length;
-    const highCount = results.findings.filter(f => f.severity === 'high').length;
-    const mediumCount = results.findings.filter(f => f.severity === 'medium').length;
-
-    results.score = Math.max(0,
-      100 - (criticalCount * 30) - (highCount * 15) - (mediumCount * 5)
-    );
-
-    return results;
-  }
-
-  async checkNpmVulnerabilities() {
-    try {
-      const output = execSync('npm audit --json', { encoding: 'utf8' });
-      const audit = JSON.parse(output);
-      
-      const findings = [];
-      if (audit.vulnerabilities) {
-        Object.entries(audit.vulnerabilities).forEach(([pkg, vuln]) => {
-          findings.push({
-            category: 'dependency',
-            severity: vuln.severity,
-            title: `Vulnerable dependency: ${pkg}`,
-            description: vuln.overview || '',
-            recommendation: `Run: npm audit fix`,
-          });
-        });
-      }
-      return findings;
-    } catch (error) {
-      return [{
-        category: 'dependency',
-        severity: 'info',
-        title: 'Could not run npm audit',
-        description: error.message,
-      }];
-    }
-  }
-
-  async checkConfiguration() {
-    const findings = [];
-
-    // Check for hardcoded secrets
-    const secretPatterns = [
-      /(?:password|secret|key|token)\s*=\s*['"][^'"]{8,}['"]/gi,
-      /(?:sk|pk|api)[_-]?(?:key|token|secret)\s*=\s*['"][^'"]+['"]/gi,
-    ];
-
-    // ตรวจสอบ environment variables
-    if (!process.env.LINE_CHANNEL_SECRET) {
-      findings.push({
-        category: 'configuration',
-        severity: 'critical',
-        title: 'Missing LINE_CHANNEL_SECRET',
-        recommendation: 'Set LINE_CHANNEL_SECRET environment variable',
-      });
-    }
-
-    if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
-      findings.push({
-        category: 'configuration',
-        severity: 'high',
-        title: 'Weak JWT_SECRET',
-        recommendation: 'Use a JWT_SECRET with at least 32 characters',
-      });
-    }
-
-    return findings;
-  }
-
-  async checkSSL() {
-    return new Promise((resolve) => {
-      const findings = [];
-      const domain = process.env.DOMAIN || 'localhost';
-
-      const req = https.request({
-        hostname: domain,
-        port: 443,
-        path: '/health',
-        method: 'GET',
-      }, (res) => {
-        const cert = res.socket.getPeerCertificate();
-        const expiryDate = new Date(cert.valid_to);
-        const daysUntilExpiry = Math.floor((expiryDate - Date.now()) / 86400000);
-
-        if (daysUntilExpiry < 30) {
-          findings.push({
-            category: 'ssl',
-            severity: daysUntilExpiry < 7 ? 'critical' : 'high',
-            title: `SSL certificate expires in ${daysUntilExpiry} days`,
-            recommendation: 'Renew SSL certificate immediately',
-          });
-        }
-
-        resolve(findings);
-      });
-
-      req.on('error', () => resolve(findings));
-      req.end();
-    });
-  }
-
-  async checkSecurityHeaders() {
-    // ตรวจสอบว่า security headers มีอยู่
-    const requiredHeaders = [
-      'strict-transport-security',
-      'x-content-type-options',
-      'x-frame-options',
-      'x-xss-protection',
-      'content-security-policy',
-    ];
-
-    const findings = [];
-    
-    // In a real implementation, make an HTTP request and check headers
-    // For now, return empty findings
-    return findings;
-  }
-}
-
-module.exports = new SecurityAuditService();
-```
-
----
-
-## 7. Disaster Recovery Procedures
-
-### 7.1 DR Plan
+### 5.1 RTO/RPO Targets
 
 ```
-Disaster Recovery Plan:
-═══════════════════════
-
 Recovery Objectives:
-├── RTO (Recovery Time Objective): 30 minutes สำหรับ P1
-├── RPO (Recovery Point Objective): 1 hour (data loss ไม่เกิน 1 ชั่วโมง)
-└── MTTR Target: < 15 minutes สำหรับ most incidents
 
-Disaster Scenarios:
-1. Database Failure:
-   └── Action: Failover to replica → 5-10 minutes
-   
-2. Application Server Failure:
-   └── Action: Auto-scaling + Load balancer redirect → 2-5 minutes
-   
-3. Cache (Redis) Failure:
-   └── Action: Application degrades gracefully, reads from DB
-   
-4. Complete Data Center Failure:
-   └── Action: Failover to DR region → 20-30 minutes
-   
-5. Data Corruption:
-   └── Action: Restore from backup → 30-60 minutes
+P1 Services (LINE Webhook, LIFF API):
+- RTO: 30 minutes (restore within 30 min)
+- RPO: 5 minutes (max 5 min data loss)
 
-DR Runbook:
-══════════
+P2 Services (Analytics, CRM):
+- RTO: 4 hours
+- RPO: 1 hour
 
-Step 1: Assess (5 minutes)
-  □ Identify what is affected
-  □ Determine severity
-  □ Notify on-call and stakeholders
-
-Step 2: Contain (5 minutes)
-  □ Prevent cascade failures
-  □ Implement maintenance mode if needed
-
-Step 3: Recover (15-20 minutes)
-  □ Execute recovery procedures
-  □ Verify recovery successful
-  □ Monitor for stability
-
-Step 4: Communicate (continuous)
-  □ Update status page
-  □ Notify users if needed
-  □ Keep stakeholders informed
-
-Step 5: Document (post-recovery)
-  □ Timeline of events
-  □ Root cause analysis
-  □ Action items
+P3 Services (Reports, Batch jobs):
+- RTO: 24 hours
+- RPO: 24 hours
 ```
 
-### 7.2 Backup Strategy
-
-```bash
-#!/bin/bash
-# scripts/backup.sh
-
-DATE=$(date +%Y%m%d_%H%M%S)
-S3_BUCKET="${BACKUP_S3_BUCKET}"
-RETENTION_DAYS=30
-
-echo "Starting backup at $DATE"
-
-# 1. Database backup
-echo "Backing up PostgreSQL..."
-pg_dump "$DATABASE_URL" | gzip > "/tmp/db_backup_${DATE}.sql.gz"
-aws s3 cp "/tmp/db_backup_${DATE}.sql.gz" "s3://${S3_BUCKET}/database/db_backup_${DATE}.sql.gz"
-rm "/tmp/db_backup_${DATE}.sql.gz"
-echo "✓ Database backup complete"
-
-# 2. Redis backup
-echo "Backing up Redis..."
-redis-cli -u "$REDIS_URL" BGSAVE
-sleep 5  # Wait for background save
-aws s3 cp "/var/lib/redis/dump.rdb" "s3://${S3_BUCKET}/redis/dump_${DATE}.rdb"
-echo "✓ Redis backup complete"
-
-# 3. Application configuration backup
-echo "Backing up configuration..."
-tar -czf "/tmp/config_backup_${DATE}.tar.gz" \
-  ./config \
-  ./.env.production \
-  ./nginx.conf
-
-aws s3 cp "/tmp/config_backup_${DATE}.tar.gz" \
-  "s3://${S3_BUCKET}/config/config_backup_${DATE}.tar.gz"
-rm "/tmp/config_backup_${DATE}.tar.gz"
-echo "✓ Configuration backup complete"
-
-# 4. LINE OA Assets backup
-echo "Backing up LINE OA assets..."
-aws s3 sync ./public/ "s3://${S3_BUCKET}/assets/${DATE}/"
-echo "✓ Assets backup complete"
-
-# 5. Cleanup old backups
-echo "Cleaning up old backups..."
-aws s3 ls "s3://${S3_BUCKET}/database/" \
-  | awk '{print $4}' \
-  | sort \
-  | head -n -${RETENTION_DAYS} \
-  | xargs -I{} aws s3 rm "s3://${S3_BUCKET}/database/{}"
-echo "✓ Cleanup complete"
-
-echo "Backup completed at $(date)"
-```
-
----
-
-## 8. Business Continuity Planning
-
-### 8.1 BCP Document
+### 5.2 DR Procedures
 
 ```markdown
-# Business Continuity Plan - LINE OA Bot
+# Disaster Recovery Runbook
 
-## Scope
-ครอบคลุม LINE OA Bot ของ [Company Name] ซึ่งให้บริการลูกค้า X คน
+## Scenario 1: Complete Region Failure
 
-## Critical Functions
-1. Webhook Processing - รับและตอบสนองต่อข้อความลูกค้า
-2. Order Processing - รับและประมวลผลคำสั่งซื้อ
-3. Customer Service - ตอบคำถามลูกค้า
-4. Broadcast Messages - ส่งข้อมูลสำคัญถึงลูกค้า
+### Detection
+- Multiple P1 alerts firing
+- Region health check failing
+- Status page showing region issue
 
-## Minimum Service Levels
-| Function | Minimum Level | Target |
-|----------|--------------|--------|
-| Webhook | 95% availability | 99.9% |
-| Orders | 99% reliability | 99.95% |
-| CS | Response < 10 min | < 3 min |
-| Broadcasts | 90% delivery rate | 99% |
+### Recovery Steps
 
-## Recovery Time Objectives
-| Scenario | RTO | RPO |
-|----------|-----|-----|
-| Single server failure | 5 min | 0 min |
-| Database failure | 10 min | 1 hour |
-| Region failure | 30 min | 4 hours |
-| Complete outage | 60 min | 24 hours |
+1. **Confirm region failure (5 min)**
+   - Check AWS/GCP status page
+   - Verify in multiple tools
+   - Do NOT assume: verify first
 
-## Communication Plan
-1. Internal notification: Slack #incidents
-2. Team notification: PagerDuty
-3. Management: Email + LINE
-4. User notification: STATUS PAGE (status.yourbot.com)
-5. Media (ถ้าจำเป็น): PR Team
+2. **Activate DR region (10 min)**
+   ```bash
+   # Update DNS to DR region
+   aws route53 change-resource-record-sets \
+     --hosted-zone-id $ZONE_ID \
+     --change-batch file://dr-dns-change.json
+   
+   # Verify DNS propagation
+   dig api.yourapp.com +short
+   ```
 
-## Alternative Operating Procedures
-ถ้า LINE Bot ใช้งานไม่ได้:
-1. Enable maintenance mode message บน LINE
-2. ส่งเจ้าหน้าที่ตอบ chat manual
-3. Redirect ลูกค้าไปยัง website/email
-4. ส่ง LINE broadcast อธิบายสถานการณ์
+3. **Start DR services (15 min)**
+   ```bash
+   # Scale up DR services
+   kubectl scale deployment --all -n line-bot \
+     --replicas=3 \
+     --context=dr-cluster
+   
+   # Verify pods running
+   kubectl get pods -n line-bot --context=dr-cluster
+   ```
+
+4. **Restore latest backup (15 min)**
+   ```bash
+   # ถ้าจำเป็น restore database
+   ./scripts/restore-db.sh --snapshot=latest --region=dr
+   ```
+
+5. **Update LINE Webhook URL (5 min)**
+   - LINE Developers Console → Messaging API
+   - Update webhook URL to DR endpoint
+   - Verify webhook
+
+6. **Verify service health (10 min)**
+   ```bash
+   # Test webhook
+   curl https://dr-api.yourapp.com/health
+   
+   # Test LINE message
+   ./scripts/send-test-message.sh --env=dr
+   ```
+
+7. **Communicate (ongoing)**
+   - Update status page
+   - Notify stakeholders
+   - Provide ETA for primary region recovery
+
+Total DR Time: ~60 minutes
 ```
 
 ---
 
-## 9. Scaling Procedures
+## 6. Capstone Project: Build Complete LINE OA System
 
-### 9.1 Scaling Playbook
+### 6.1 Project Overview: "FreshMart" - ระบบ E-Commerce สำหรับร้านค้าปลีก
 
-```javascript
-// src/scaling/scalingPlaybook.js
-class ScalingPlaybook {
-  // เมื่อ traffic เพิ่มสูงขึ้น
-  async handleHighTraffic(metrics) {
-    const { cpuUsage, requestRate, responseTime, errorRate } = metrics;
+```
+Project: FreshMart LINE OA System
+ประเภทธุรกิจ: ร้านขายของชำออนไลน์
+เป้าหมาย: สร้าง LINE Bot ที่ช่วยให้ลูกค้าสั่งของชำผ่าน LINE
 
-    const actions = [];
-
-    if (cpuUsage > 80) {
-      actions.push({
-        action: 'scale_up_app',
-        command: 'kubectl scale deployment line-bot --replicas=+2',
-        reason: `CPU usage: ${cpuUsage}%`,
-      });
-    }
-
-    if (responseTime > 1000) {
-      actions.push({
-        action: 'enable_cache_warming',
-        reason: `Response time: ${responseTime}ms`,
-      });
-    }
-
-    if (requestRate > 1000) {
-      actions.push({
-        action: 'enable_rate_limiting',
-        reason: `Request rate: ${requestRate}/s`,
-      });
-    }
-
-    if (errorRate > 0.05) {
-      actions.push({
-        action: 'investigate_errors',
-        reason: `Error rate: ${errorRate * 100}%`,
-        priority: 'immediate',
-      });
-    }
-
-    return actions;
-  }
-
-  // Scaling procedures ตาม event
-  getScalingProcedures() {
-    return {
-      'campaign_launch': {
-        description: 'เตรียมระบบก่อน broadcast campaign ขนาดใหญ่',
-        steps: [
-          'เพิ่ม app instances ก่อน 30 นาที',
-          'Pre-warm Redis cache',
-          'ตรวจสอบ database connection pool',
-          'Enable CDN aggressive caching',
-          'ปิด non-critical background jobs',
-          'Monitor ใกล้ชิดระหว่าง campaign',
-        ],
-        scaling: { appInstances: 5, dbConnections: 50 },
-      },
-      'flash_sale': {
-        description: 'Flash sale บน LINE',
-        steps: [
-          'Scale up 2 ชั่วโมงก่อน',
-          'Enable queue สำหรับ order processing',
-          'ตั้ง rate limits สำหรับ order endpoints',
-          'Monitor inventory closely',
-          'Prepare rollback plan',
-        ],
-        scaling: { appInstances: 10, dbConnections: 100 },
-      },
-      'normal': {
-        description: 'Normal operations',
-        scaling: { appInstances: 2, dbConnections: 20 },
-      },
-    };
-  }
-}
-
-module.exports = ScalingPlaybook;
+Key Features:
+1. สินค้า catalog ด้วย Flex Messages
+2. ระบบ shopping cart
+3. สั่งซื้อและชำระเงินผ่าน LINE Pay
+4. ติดตามสถานะ delivery
+5. ระบบ loyalty points
+6. Customer support chatbot
+7. Analytics dashboard
+8. Admin LIFF app
 ```
 
----
+### 6.2 Architecture Planning
 
-## 10. Maintenance Windows
+```
+FreshMart Architecture:
 
-### 10.1 Maintenance Procedures
+LINE App
+   ↓
+LINE Platform (Webhook + LIFF)
+   ↓
+API Gateway (nginx/Kong)
+   ↓
+┌──────────────────────────────────────┐
+│          Application Services         │
+│                                      │
+│  Webhook Handler  │  LIFF API        │
+│  (Node.js)        │  (Node.js)       │
+│                   │                  │
+│  Order Service    │  Product Service  │
+│  (Node.js)        │  (Node.js)       │
+│                   │                  │
+│  Payment Service  │  Notification    │
+│  (Node.js)        │  Service (Node)  │
+└──────────────────────────────────────┘
+         ↓                    ↓
+   ┌──────────┐         ┌──────────┐
+   │  Kafka   │         │   Redis  │
+   │  Cluster │         │  Cache   │
+   └──────────┘         └──────────┘
+         ↓
+   ┌──────────┐
+   │PostgreSQL│
+   │  (RDS)   │
+   └──────────┘
+         ↓
+   ┌──────────┐
+   │Analytics │
+   │(ClickHse)│
+   └──────────┘
+```
 
-```javascript
-// src/maintenance/maintenanceManager.js
-class MaintenanceManager {
-  constructor(lineClient, redis) {
-    this.lineClient = lineClient;
-    this.redis = redis;
-    this.maintenanceKey = 'system:maintenance';
-  }
+### 6.3 Database Schema
 
-  // เปิด maintenance mode
-  async enableMaintenanceMode(message, estimatedDuration) {
-    const maintenanceInfo = {
-      enabled: true,
-      message,
-      startedAt: Date.now(),
-      estimatedDuration,
-      estimatedEnd: Date.now() + (estimatedDuration * 60 * 1000),
-    };
+```sql
+-- database/schema.sql
 
-    await this.redis.set(
-      this.maintenanceKey,
-      JSON.stringify(maintenanceInfo)
+-- Users
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  line_user_id VARCHAR(255) UNIQUE NOT NULL,
+  display_name VARCHAR(255),
+  picture_url TEXT,
+  email VARCHAR(255),
+  phone VARCHAR(20),
+  loyalty_points INT DEFAULT 0,
+  tier VARCHAR(20) DEFAULT 'bronze',
+  followed_at TIMESTAMPTZ DEFAULT NOW(),
+  last_active_at TIMESTAMPTZ,
+  is_blocked BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_users_line_id ON users(line_user_id);
+CREATE INDEX idx_users_tier ON users(tier);
+
+-- Products
+CREATE TABLE products (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  sku VARCHAR(100) UNIQUE NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  name_en VARCHAR(255),
+  description TEXT,
+  category_id UUID REFERENCES categories(id),
+  price DECIMAL(10,2) NOT NULL,
+  compare_at_price DECIMAL(10,2),
+  unit VARCHAR(50),
+  stock_quantity INT DEFAULT 0,
+  is_available BOOLEAN DEFAULT true,
+  weight_grams INT,
+  images JSONB DEFAULT '[]',
+  tags TEXT[] DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_products_category ON products(category_id);
+CREATE INDEX idx_products_sku ON products(sku);
+CREATE INDEX idx_products_available ON products(is_available) WHERE is_available = true;
+
+-- Orders
+CREATE TABLE orders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_number VARCHAR(50) UNIQUE NOT NULL,
+  user_id UUID REFERENCES users(id) NOT NULL,
+  status VARCHAR(50) NOT NULL DEFAULT 'pending',
+  payment_status VARCHAR(50) DEFAULT 'unpaid',
+  payment_method VARCHAR(50),
+  subtotal DECIMAL(10,2) NOT NULL,
+  shipping_fee DECIMAL(10,2) DEFAULT 0,
+  discount DECIMAL(10,2) DEFAULT 0,
+  total_amount DECIMAL(10,2) NOT NULL,
+  shipping_address JSONB,
+  notes TEXT,
+  coupon_code VARCHAR(50),
+  delivery_slot TIMESTAMPTZ,
+  delivered_at TIMESTAMPTZ,
+  cancelled_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+) PARTITION BY RANGE (created_at);
+
+-- Create monthly partitions
+CREATE TABLE orders_2024_01 PARTITION OF orders
+  FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');
+
+CREATE TABLE orders_2024_02 PARTITION OF orders
+  FOR VALUES FROM ('2024-02-01') TO ('2024-03-01');
+
+-- Order Items
+CREATE TABLE order_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id UUID REFERENCES orders(id) NOT NULL,
+  product_id UUID REFERENCES products(id) NOT NULL,
+  product_snapshot JSONB NOT NULL,
+  quantity INT NOT NULL,
+  unit_price DECIMAL(10,2) NOT NULL,
+  total_price DECIMAL(10,2) NOT NULL,
+  notes TEXT
+);
+
+CREATE INDEX idx_order_items_order ON order_items(order_id);
+
+-- Cart
+CREATE TABLE carts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) UNIQUE NOT NULL,
+  expires_at TIMESTAMPTZ DEFAULT NOW() + INTERVAL '7 days',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE cart_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  cart_id UUID REFERENCES carts(id) NOT NULL,
+  product_id UUID REFERENCES products(id) NOT NULL,
+  quantity INT NOT NULL DEFAULT 1,
+  added_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(cart_id, product_id)
+);
+```
+
+### 6.4 Development Phases
+
+```
+Phase 1: Foundation (สัปดาห์ 1-2)
+
+1. Project setup
+   □ สร้าง GitHub repository
+   □ Setup Docker Compose for local development
+   □ Setup CI/CD pipeline
+   □ Create LINE OA account สำหรับ development
+   □ Configure LINE channel
+
+2. Basic webhook
+   □ Express server setup
+   □ Webhook endpoint
+   □ Signature validation
+   □ Basic echo bot (ทดสอบ connection)
+   □ Logging setup
+
+3. Database
+   □ Design schema
+   □ Setup PostgreSQL
+   □ Run migrations
+   □ Seed test data
+
+Phase 2: Core Features (สัปดาห์ 3-5)
+
+4. Product Catalog
+   □ Product model และ CRUD API
+   □ Browse products ผ่าน LINE (Flex Carousel)
+   □ Search products
+   □ Product detail page (LIFF)
+   □ Category navigation ด้วย Rich Menu
+
+5. Shopping Cart
+   □ Add/remove items
+   □ Cart persistence (Redis)
+   □ Cart summary Flex message
+   □ Quantity update
+
+6. Order System
+   □ Checkout flow
+   □ Address selection
+   □ Order confirmation message
+   □ Order summary Flex message
+
+Phase 3: Payments & Fulfillment (สัปดาห์ 6-7)
+
+7. LINE Pay Integration
+   □ Payment request
+   □ Payment confirmation webhook
+   □ Refund handling
+   □ Payment receipt
+
+8. Delivery Tracking
+   □ Order status updates
+   □ Push notifications ทุก status change
+   □ Tracking link
+
+Phase 4: Engagement (สัปดาห์ 8-9)
+
+9. Loyalty System
+   □ Points calculation
+   □ Points history
+   □ Tier system
+   □ Rewards redemption
+
+10. Customer Support
+    □ Basic FAQ bot
+    □ Escalation to human agent
+    □ Support ticket tracking
+
+Phase 5: Analytics & Optimization (สัปดาห์ 10)
+
+11. Analytics
+    □ Event tracking
+    □ Dashboard setup
+    □ KPI monitoring
+    □ Kafka event pipeline
+
+12. Performance Optimization
+    □ Caching strategy
+    □ Load testing
+    □ Query optimization
+
+Phase 6: Production Launch (สัปดาห์ 11-12)
+
+13. Pre-launch
+    □ Security review
+    □ Performance testing
+    □ UAT
+    □ Documentation
+
+14. Launch
+    □ Production deployment
+    □ Monitoring setup
+    □ On-call rotation
+    □ Post-launch monitoring
+```
+
+### 6.5 Key Implementation: Product Catalog Bot
+
+```typescript
+// src/handlers/catalog.handler.ts
+import { MessageEvent, FlexMessage, FlexCarousel } from '@line/bot-sdk';
+import { ProductService } from '../services/product.service';
+import { LineMessageBuilder } from '../utils/message-builder';
+import { CartService } from '../services/cart.service';
+
+export class CatalogHandler {
+  constructor(
+    private productService: ProductService,
+    private cartService: CartService,
+    private lineClient: any
+  ) {}
+
+  async handleCategoryBrowse(
+    event: MessageEvent,
+    categoryId: string
+  ): Promise<void> {
+    const userId = event.source.userId!;
+    const products = await this.productService.getProductsByCategory(
+      categoryId,
+      { limit: 10, inStockOnly: true }
     );
 
-    console.log('Maintenance mode enabled');
-    return maintenanceInfo;
-  }
-
-  // ปิด maintenance mode
-  async disableMaintenanceMode() {
-    await this.redis.del(this.maintenanceKey);
-    console.log('Maintenance mode disabled');
-  }
-
-  // ตรวจสอบ maintenance status
-  async isInMaintenance() {
-    const data = await this.redis.get(this.maintenanceKey);
-    if (!data) return false;
-
-    const info = JSON.parse(data);
-    return info.enabled;
-  }
-
-  // ส่ง maintenance notification ไปยังผู้ใช้
-  async notifyUsers(message, targetUserIds = null) {
-    const notification = {
-      type: 'flex',
-      altText: '⚙️ แจ้งปิดปรับปรุงระบบชั่วคราว',
-      contents: {
-        type: 'bubble',
-        body: {
-          type: 'box',
-          layout: 'vertical',
-          contents: [
-            {
-              type: 'text',
-              text: '⚙️ แจ้งปิดปรับปรุงระบบ',
-              weight: 'bold',
-              size: 'lg',
-            },
-            {
-              type: 'text',
-              text: message,
-              wrap: true,
-              margin: 'md',
-              color: '#666666',
-            },
-            {
-              type: 'text',
-              text: 'ขออภัยในความไม่สะดวก 🙏',
-              margin: 'md',
-              color: '#888888',
-              size: 'sm',
-            },
-          ],
-        },
-      },
-    };
-
-    if (targetUserIds && targetUserIds.length > 0) {
-      // Multicast ไปยัง specific users
-      const chunks = this.chunkArray(targetUserIds, 500);
-      for (const chunk of chunks) {
-        await this.lineClient.multicast(chunk, [notification]);
-      }
-    } else {
-      // Broadcast ไปยังทุกคน
-      await this.lineClient.broadcast(notification);
-    }
-  }
-
-  chunkArray(arr, size) {
-    return Array.from({ length: Math.ceil(arr.length / size) }, (_, i) =>
-      arr.slice(i * size, (i + 1) * size)
-    );
-  }
-}
-
-module.exports = MaintenanceManager;
-```
-
----
-
-## 11. Deprecation Procedures
-
-### 11.1 API Deprecation Policy
-
-```javascript
-// src/middleware/deprecationMiddleware.js
-const deprecations = {
-  '/api/v1/messages': {
-    deprecated: '2025-01-01',
-    sunset: '2025-07-01',
-    replacement: '/api/v2/messages',
-    reason: 'v2 provides better performance and additional features',
-  },
-  '/api/v1/users': {
-    deprecated: '2025-02-01',
-    sunset: '2025-08-01',
-    replacement: '/api/v2/users',
-  },
-};
-
-const deprecationMiddleware = (req, res, next) => {
-  const deprecationInfo = deprecations[req.path];
-  
-  if (deprecationInfo) {
-    const sunsetDate = new Date(deprecationInfo.sunset);
-    const now = new Date();
-    
-    if (now > sunsetDate) {
-      // API ถูก sunset แล้ว
-      return res.status(410).json({
-        error: 'Gone',
-        message: `This API endpoint has been removed. Please use ${deprecationInfo.replacement}`,
-        documentationUrl: 'https://docs.yourbot.com/migration',
-      });
-    }
-    
-    // Add deprecation headers
-    res.set('Deprecation', `date="${deprecationInfo.deprecated}"`);
-    res.set('Sunset', deprecationInfo.sunset);
-    
-    if (deprecationInfo.replacement) {
-      res.set('Link', `<${deprecationInfo.replacement}>; rel="successor-version"`);
-    }
-    
-    // Log deprecated usage for monitoring
-    console.warn(`Deprecated endpoint used: ${req.path}`, {
-      ip: req.ip,
-      userAgent: req.get('User-Agent'),
-      deprecated: deprecationInfo.deprecated,
-      sunset: deprecationInfo.sunset,
-    });
-  }
-  
-  next();
-};
-
-module.exports = deprecationMiddleware;
-```
-
----
-
-## 12. Knowledge Transfer
-
-### 12.1 Knowledge Transfer Checklist
-
-```
-Knowledge Transfer Checklist:
-══════════════════════════════
-
-Architecture Knowledge:
-□ System architecture diagram reviewed
-□ Data flow diagrams explained
-□ Third-party integrations documented
-□ Infrastructure setup documented
-□ Database schema documented
-
-Codebase Knowledge:
-□ Code walkthrough สำหรับ critical modules
-□ Custom business logic documented
-□ Non-obvious code comments added
-□ Tech debt documented
-□ Known bugs/limitations documented
-
-Operations Knowledge:
-□ Deployment procedures documented
-□ Monitoring setup explained
-□ Alert runbooks reviewed
-□ On-call procedures explained
-□ Incident response practiced
-
-Business Knowledge:
-□ Product roadmap shared
-□ Stakeholder contacts documented
-□ SLAs explained
-□ Business rules documented
-□ External vendor contacts documented
-
-Security Knowledge:
-□ Security policies reviewed
-□ Secret rotation procedures
-□ Compliance requirements
-□ Incident response plan
-□ Security contacts documented
-```
-
----
-
-## 13. Documentation Requirements
-
-### 13.1 Required Documentation Checklist
-
-```
-Documentation Requirements:
-════════════════════════════
-
-Technical Documentation:
-□ README.md (project overview, setup, usage)
-□ ARCHITECTURE.md (system design)
-□ API_REFERENCE.md (all endpoints)
-□ DATABASE_SCHEMA.md (tables, relationships)
-□ DEPLOYMENT.md (deployment procedures)
-□ CONFIGURATION.md (env vars, settings)
-□ SECURITY.md (security practices)
-□ TESTING.md (how to run tests)
-□ TROUBLESHOOTING.md (common issues)
-□ CHANGELOG.md (version history)
-
-Operations Documentation:
-□ RUNBOOK.md (operational procedures)
-□ INCIDENT_RESPONSE.md
-□ DR_PLAN.md
-□ BACKUP_RESTORE.md
-□ MONITORING.md (what to watch)
-□ SCALING.md (how to scale)
-□ MAINTENANCE.md (maintenance procedures)
-
-Business Documentation:
-□ PRODUCT_SPEC.md (features, requirements)
-□ USER_GUIDE.md (for LINE OA managers)
-□ ADMIN_GUIDE.md (for admin dashboard)
-□ FAQ.md (frequently asked questions)
-□ RELEASE_NOTES.md
-```
-
----
-
-## 14. Complete Production Readiness Review
-
-### 14.1 Production Readiness Review (PRR) Template
-
-```markdown
-# Production Readiness Review (PRR)
-
-## Project: [LINE Bot Name]
-## Date: [Date]
-## Reviewers: [Names]
-
-## Executive Summary
-[Brief overview of the system and its readiness for production]
-
----
-
-## 1. Architecture Review
-
-### 1.1 System Architecture
-- [ ] Architecture diagram reviewed and approved
-- [ ] No single points of failure
-- [ ] Appropriate use of microservices/monolith
-
-**Score: /10**
-
-### 1.2 Data Architecture
-- [ ] Database design reviewed
-- [ ] Data backup strategy defined
-- [ ] Data retention policy documented
-
-**Score: /10**
-
----
-
-## 2. Reliability
-
-### 2.1 Availability
-- [ ] SLO defined: ___% availability
-- [ ] Error budget defined
-- [ ] Redundancy implemented
-
-### 2.2 Disaster Recovery
-- [ ] RTO: ___ minutes
-- [ ] RPO: ___ hours
-- [ ] DR tested
-
-**Score: /20**
-
----
-
-## 3. Security
-
-### 3.1 Authentication & Authorization
-- [ ] All endpoints secured
-- [ ] Secrets management
-- [ ] LINE signature verification
-
-### 3.2 Data Protection
-- [ ] Encryption at rest
-- [ ] Encryption in transit
-- [ ] PII handling
-
-**Score: /20**
-
----
-
-## 4. Performance
-
-### 4.1 Load Testing
-- [ ] Load test completed
-- [ ] Performance benchmarks met
-- [ ] P95 latency: ___ ms (target < 500ms)
-
-### 4.2 Capacity Planning
-- [ ] Peak load estimated
-- [ ] Resources provisioned appropriately
-- [ ] Auto-scaling configured
-
-**Score: /15**
-
----
-
-## 5. Observability
-
-### 5.1 Monitoring
-- [ ] Metrics collected
-- [ ] Dashboards created
-- [ ] Alerts configured
-
-### 5.2 Logging
-- [ ] Structured logging
-- [ ] Log aggregation
-- [ ] Log retention
-
-**Score: /15**
-
----
-
-## 6. Operations
-
-### 6.1 Deployment
-- [ ] CI/CD pipeline
-- [ ] Rollback tested
-- [ ] Runbooks complete
-
-### 6.2 On-call
-- [ ] On-call rotation defined
-- [ ] Escalation procedures documented
-
-**Score: /10**
-
----
-
-## 7. LINE-Specific
-
-### 7.1 API Compliance
-- [ ] Webhook signature verified
-- [ ] Quota management
-- [ ] Error handling complete
-
-### 7.2 User Experience
-- [ ] All message types tested
-- [ ] Rich Menu working
-- [ ] LIFF tested
-
-**Score: /10**
-
----
-
-## Overall Score: /100
-
-| Range | Decision |
-|-------|----------|
-| 90-100 | ✅ Approved for Production |
-| 75-89 | ⚠️ Conditional Approval (fix issues) |
-| < 75 | ❌ Not Ready for Production |
-
-## Required Actions Before Launch
-1.
-2.
-3.
-
-## Review Sign-off
-- Tech Lead: _____________ Date: _______
-- Security Lead: _____________ Date: _______
-- Product Owner: _____________ Date: _______
-```
-
----
-
-## 15. Capstone Project: Complete Production LINE Bot System
-
-### 15.1 Capstone Project Overview
-
-```
-Capstone Project: "Smart Commerce LINE Bot"
-════════════════════════════════════════════
-
-โปรเจ็กต์นี้จะรวมทุกสิ่งที่เรียนมาใน 100 บทเข้าด้วยกัน
-เป็น production-ready LINE Bot สำหรับธุรกิจ e-commerce
-
-Features:
-1. Customer Chat & Support (Part 96 - WebSocket)
-2. Smart Product Recommendations (AI)
-3. Order Management System (Part 98 cost-optimized)
-4. Real-time Order Tracking
-5. Analytics Dashboard (Part 97)
-6. Payment via LINE Pay
-7. Loyalty Program
-8. Campaign Management
-
-Technical Stack:
-├── Backend: Node.js + TypeScript
-├── Database: PostgreSQL + Redis
-├── WebSocket: Socket.io
-├── AI: Claude API (intent detection)
-├── Infrastructure: Kubernetes on GCP/AWS
-├── Monitoring: Prometheus + Grafana
-├── CI/CD: GitHub Actions
-└── IaC: Terraform
-```
-
-### 15.2 Project Architecture
-
-```
-Smart Commerce LINE Bot Architecture:
-
-┌─────────────────────────────────────────────────────────────────┐
-│                        LINE Platform                            │
-│  Users ──[Messages]──> Webhook ──[Events]──> Bot Server        │
-│  Users <──[Push/Reply]──────────────────────────────────────── │
-│  Users ──[LIFF]──────> Web App ──[API]──> Bot Server           │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-            ┌───────────────────┼───────────────────┐
-            │                  │                   │
-    ┌───────▼───────┐  ┌───────▼───────┐  ┌───────▼───────┐
-    │  API Gateway  │  │  WebSocket    │  │   Worker      │
-    │  (Nginx)      │  │  Server       │  │   (Queues)    │
-    └───────┬───────┘  └───────┬───────┘  └───────┬───────┘
-            │                  │                   │
-            └──────────────────┼───────────────────┘
-                               │
-                    ┌──────────▼──────────┐
-                    │   Application Layer  │
-                    │  ┌────────────────┐  │
-                    │  │   Bot Logic    │  │
-                    │  ├────────────────┤  │
-                    │  │  AI Service    │  │
-                    │  ├────────────────┤  │
-                    │  │ Order Service  │  │
-                    │  ├────────────────┤  │
-                    │  │ Chat Service   │  │
-                    │  └────────────────┘  │
-                    └──────────┬──────────┘
-                               │
-                    ┌──────────┼──────────┐
-                    │          │          │
-            ┌───────▼───┐ ┌───▼───┐ ┌───▼───────┐
-            │ PostgreSQL │ │ Redis │ │  S3/GCS   │
-            │ (Primary + │ │       │ │ (Assets)  │
-            │  Replica)  │ │       │ │           │
-            └────────────┘ └───────┘ └───────────┘
-```
-
-### 15.3 Complete Implementation
-
-```javascript
-// src/bot/smartCommerceBot.js - Main bot logic
-const line = require('@line/bot-sdk');
-const config = require('../config');
-const OrderService = require('../services/orderService');
-const ChatService = require('../services/chatService');
-const AIService = require('../services/aiService');
-const ProductService = require('../services/productService');
-const LoyaltyService = require('../services/loyaltyService');
-const eventTracker = require('../analytics/eventTracker');
-
-class SmartCommerceBot {
-  constructor(io) {
-    this.client = new line.Client({
-      channelAccessToken: config.line.channelAccessToken,
-    });
-    this.orderService = new OrderService();
-    this.chatService = new ChatService(io);
-    this.aiService = new AIService();
-    this.productService = new ProductService();
-    this.loyaltyService = new LoyaltyService();
-  }
-
-  async handleEvent(event) {
-    // Track event
-    await eventTracker.track(event.source.userId, event.type, {
-      messageType: event.message?.type,
-    });
-
-    switch (event.type) {
-      case 'message':
-        return this.handleMessage(event);
-      case 'follow':
-        return this.handleFollow(event);
-      case 'unfollow':
-        return this.handleUnfollow(event);
-      case 'postback':
-        return this.handlePostback(event);
-      default:
-        return null;
-    }
-  }
-
-  async handleMessage(event) {
-    const { source, message, replyToken } = event;
-    const userId = source.userId;
-
-    if (message.type === 'text') {
-      return this.handleTextMessage(userId, message.text, replyToken);
-    } else if (message.type === 'image') {
-      return this.handleImageMessage(userId, message, replyToken);
-    }
-  }
-
-  async handleTextMessage(userId, text, replyToken) {
-    // ใช้ AI เพื่อตรวจสอบ intent
-    const intent = await this.aiService.detectIntent(text);
-    
-    switch (intent.type) {
-      case 'order_status':
-        return this.handleOrderStatusQuery(userId, intent, replyToken);
-      case 'product_inquiry':
-        return this.handleProductInquiry(userId, intent, replyToken);
-      case 'complaint':
-        return this.handleComplaint(userId, text, replyToken);
-      case 'loyalty_points':
-        return this.handleLoyaltyQuery(userId, replyToken);
-      case 'general':
-      default:
-        return this.handleGeneralMessage(userId, text, replyToken);
-    }
-  }
-
-  async handleOrderStatusQuery(userId, intent, replyToken) {
-    const orderId = intent.entities?.orderId;
-    
-    if (!orderId) {
-      // ขอ order ID จากลูกค้า
-      await this.client.replyMessage(replyToken, {
-        type: 'text',
-        text: 'กรุณาระบุหมายเลขคำสั่งซื้อของคุณ (เช่น ORD-12345)',
-      });
-      return;
-    }
-
-    const order = await this.orderService.getOrderByUser(orderId, userId);
-    
-    if (!order) {
-      await this.client.replyMessage(replyToken, {
-        type: 'text',
-        text: `ไม่พบคำสั่งซื้อหมายเลข ${orderId} สำหรับบัญชีของคุณ`,
-      });
-      return;
-    }
-
-    const statusMessages = await this.orderService.buildOrderStatusMessage(order);
-    await this.client.replyMessage(replyToken, statusMessages);
-  }
-
-  async handleProductInquiry(userId, intent, replyToken) {
-    const query = intent.entities?.query;
-    const products = await this.productService.searchProducts(query);
-    
     if (products.length === 0) {
-      await this.client.replyMessage(replyToken, {
+      await this.lineClient.replyMessage(event.replyToken, {
         type: 'text',
-        text: `ไม่พบสินค้าที่ตรงกับ "${query}" กรุณาลองค้นหาด้วยคำอื่น`,
+        text: 'ขออภัย ไม่พบสินค้าในหมวดนี้ในขณะนี้',
       });
       return;
     }
 
-    const flexMessages = this.productService.buildProductCarousel(products.slice(0, 5));
-    await this.client.replyMessage(replyToken, [flexMessages]);
-  }
+    // สร้าง Flex Carousel จาก products
+    const carousel = this.buildProductCarousel(products);
 
-  async handleComplaint(userId, text, replyToken) {
-    // บันทึกเคสเข้า ticket system
-    const ticket = await this.chatService.createTicket(userId, text, 'complaint');
-    
-    // Notify agents
-    this.chatService.broadcastToAdmins('new-ticket', ticket);
-    
-    await this.client.replyMessage(replyToken, {
-      type: 'flex',
-      altText: 'รับทราบปัญหาของคุณแล้ว',
-      contents: {
-        type: 'bubble',
-        body: {
-          type: 'box',
-          layout: 'vertical',
-          contents: [
-            {
-              type: 'text',
-              text: '✅ รับทราบปัญหาของคุณแล้ว',
-              weight: 'bold',
-              size: 'lg',
-            },
-            {
-              type: 'text',
-              text: `หมายเลขเคส: #${ticket.id}`,
-              margin: 'md',
-            },
-            {
-              type: 'text',
-              text: 'เจ้าหน้าที่จะติดต่อกลับภายใน 30 นาที',
-              margin: 'sm',
-              color: '#666666',
-              wrap: true,
-            },
-          ],
-        },
-        footer: {
-          type: 'box',
-          layout: 'vertical',
-          contents: [{
-            type: 'button',
-            action: {
-              type: 'uri',
-              label: 'ติดตามสถานะเคส',
-              uri: `${config.liff.url}/ticket/${ticket.id}`,
-            },
-            style: 'primary',
-            color: '#00B900',
-          }],
-        },
+    await this.lineClient.replyMessage(event.replyToken, [
+      {
+        type: 'text',
+        text: `🛒 สินค้าในหมวด "${products[0].category?.name}" (${products.length} รายการ)`,
       },
-    });
+      carousel,
+    ]);
   }
 
-  async handleLoyaltyQuery(userId, replyToken) {
-    const loyalty = await this.loyaltyService.getUserPoints(userId);
-    
-    await this.client.replyMessage(replyToken, {
+  private buildProductCarousel(products: any[]): FlexMessage {
+    const bubbles = products.map(product => ({
+      type: 'bubble' as const,
+      size: 'micro',
+      hero: {
+        type: 'image' as const,
+        url: product.images[0]?.url || 'https://via.placeholder.com/300',
+        size: 'full',
+        aspectRatio: '1:1',
+        aspectMode: 'cover' as const,
+      },
+      body: {
+        type: 'box' as const,
+        layout: 'vertical' as const,
+        paddingMd: '17px',
+        paddingTop: '15px',
+        contents: [
+          {
+            type: 'text' as const,
+            text: product.name,
+            weight: 'bold' as const,
+            size: 'md',
+            wrap: true,
+          },
+          {
+            type: 'box' as const,
+            layout: 'baseline' as const,
+            contents: [
+              {
+                type: 'text' as const,
+                text: `฿${product.price.toLocaleString()}`,
+                size: 'xl',
+                color: '#0D8186',
+                flex: 0,
+              },
+              {
+                type: 'text' as const,
+                text: `/${product.unit}`,
+                size: 'sm',
+                color: '#888888',
+                flex: 0,
+              },
+            ],
+          },
+          product.stockQuantity < 10 ? {
+            type: 'text' as const,
+            text: `เหลือ ${product.stockQuantity} ${product.unit}`,
+            size: 'xs',
+            color: '#FF4444',
+          } : null,
+        ].filter(Boolean),
+      },
+      footer: {
+        type: 'box' as const,
+        layout: 'vertical' as const,
+        gap: 'xs',
+        contents: [
+          {
+            type: 'button' as const,
+            action: {
+              type: 'postback' as const,
+              label: '🛒 เพิ่มลงตะกร้า',
+              data: `action=add_to_cart&productId=${product.id}`,
+              displayText: `เพิ่ม "${product.name}" ลงตะกร้า`,
+            },
+            style: 'primary' as const,
+            height: 'sm',
+            color: '#0D8186',
+          },
+          {
+            type: 'button' as const,
+            action: {
+              type: 'uri' as const,
+              label: 'ดูรายละเอียด',
+              uri: `${process.env.LIFF_URL}/product/${product.id}`,
+            },
+            style: 'link' as const,
+            height: 'sm',
+          },
+        ],
+      },
+    }));
+
+    return {
       type: 'flex',
-      altText: 'คะแนนสะสมของคุณ',
+      altText: `สินค้า ${products.length} รายการ`,
+      contents: {
+        type: 'carousel',
+        contents: bubbles,
+      } as FlexCarousel,
+    };
+  }
+
+  async handleAddToCart(event: any, productId: string): Promise<void> {
+    const userId = event.source.userId!;
+
+    try {
+      const [product, cart] = await Promise.all([
+        this.productService.getById(productId),
+        this.cartService.getOrCreateCart(userId),
+      ]);
+
+      if (!product) {
+        await this.lineClient.replyMessage(event.replyToken, {
+          type: 'text',
+          text: 'ขออภัย ไม่พบสินค้านี้',
+        });
+        return;
+      }
+
+      if (product.stockQuantity === 0) {
+        await this.lineClient.replyMessage(event.replyToken, {
+          type: 'text',
+          text: `ขออภัย ${product.name} หมดสต๊อกแล้ว`,
+        });
+        return;
+      }
+
+      await this.cartService.addItem(cart.id, productId, 1);
+      const updatedCart = await this.cartService.getCartWithItems(cart.id);
+
+      const message = this.buildCartAddedMessage(product, updatedCart);
+      await this.lineClient.replyMessage(event.replyToken, message);
+    } catch (error) {
+      logger.error('Error adding to cart', { userId, productId, error });
+      await this.lineClient.replyMessage(event.replyToken, {
+        type: 'text',
+        text: 'เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง',
+      });
+    }
+  }
+
+  private buildCartAddedMessage(product: any, cart: any): FlexMessage {
+    const cartTotal = cart.items.reduce(
+      (sum: number, item: any) => sum + item.product.price * item.quantity,
+      0
+    );
+
+    return {
+      type: 'flex',
+      altText: `เพิ่ม ${product.name} ลงตะกร้าแล้ว`,
       contents: {
         type: 'bubble',
+        styles: { header: { backgroundColor: '#0D8186' } },
         header: {
           type: 'box',
           layout: 'vertical',
-          backgroundColor: '#FFD700',
           contents: [{
             type: 'text',
-            text: '⭐ คะแนนสะสม',
+            text: '✅ เพิ่มลงตะกร้าแล้ว!',
+            color: '#ffffff',
             weight: 'bold',
             size: 'lg',
           }],
@@ -1886,17 +1273,9 @@ class SmartCommerceBot {
           contents: [
             {
               type: 'text',
-              text: `${loyalty.points.toLocaleString()} คะแนน`,
-              size: 'xxl',
+              text: product.name,
               weight: 'bold',
-              align: 'center',
-              color: '#FFB300',
-            },
-            {
-              type: 'text',
-              text: `ระดับ: ${loyalty.tier}`,
-              align: 'center',
-              margin: 'sm',
+              size: 'md',
             },
             {
               type: 'separator',
@@ -1907,1030 +1286,468 @@ class SmartCommerceBot {
               layout: 'horizontal',
               margin: 'md',
               contents: [
-                { type: 'text', text: 'คะแนนที่ใช้ได้', flex: 2, size: 'sm', color: '#888' },
-                { type: 'text', text: `${loyalty.availablePoints} คะแนน`, flex: 1, size: 'sm', align: 'end' },
-              ],
-            },
-            {
-              type: 'box',
-              layout: 'horizontal',
-              contents: [
-                { type: 'text', text: 'คะแนนหมดอายุ', flex: 2, size: 'sm', color: '#888' },
-                { type: 'text', text: loyalty.expiryDate ? `${loyalty.expiringPoints} (${loyalty.expiryDate})` : 'ไม่มี', flex: 1, size: 'sm', align: 'end', color: loyalty.expiringPoints > 0 ? '#FF4444' : '#888' },
+                { type: 'text', text: `รายการในตะกร้า: ${cart.items.length}`, flex: 5 },
+                { type: 'text', text: `฿${cartTotal.toLocaleString()}`, flex: 5, align: 'end', color: '#0D8186', weight: 'bold' },
               ],
             },
           ],
         },
         footer: {
           type: 'box',
-          layout: 'vertical',
-          contents: [{
-            type: 'button',
-            action: {
-              type: 'uri',
-              label: '🎁 แลกรางวัล',
-              uri: `${config.liff.url}/rewards`,
+          layout: 'horizontal',
+          gap: 'sm',
+          contents: [
+            {
+              type: 'button',
+              action: {
+                type: 'postback',
+                label: 'ดูตะกร้า',
+                data: 'action=view_cart',
+              },
+              style: 'primary',
+              height: 'sm',
+              flex: 1,
             },
-            style: 'primary',
-            color: '#FFB300',
-          }],
+            {
+              type: 'button',
+              action: {
+                type: 'postback',
+                label: 'ซื้อต่อ',
+                data: 'action=browse_products',
+              },
+              style: 'secondary',
+              height: 'sm',
+              flex: 1,
+            },
+          ],
         },
-      },
-    });
-  }
-
-  async handleFollow(event) {
-    const userId = event.source.userId;
-    
-    try {
-      const profile = await this.client.getProfile(userId);
-      
-      // สร้าง user record
-      await this.chatService.createOrUpdateUser(userId, profile);
-      
-      // ส่ง welcome message
-      await this.client.replyMessage(event.replyToken, [
-        {
-          type: 'text',
-          text: `ยินดีต้อนรับ ${profile.displayName} สู่ Smart Commerce! 🎉\n\nเราพร้อมให้บริการคุณตลอด 24 ชั่วโมง`,
-        },
-        {
-          type: 'flex',
-          altText: 'เริ่มต้นใช้งาน',
-          contents: this.buildWelcomeCard(profile),
-        },
-      ]);
-
-      // Track
-      await eventTracker.track(userId, 'follow', {
-        displayName: profile.displayName,
-      });
-      
-    } catch (error) {
-      console.error('Error handling follow:', error);
-    }
-  }
-
-  buildWelcomeCard(profile) {
-    return {
-      type: 'bubble',
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        contents: [
-          {
-            type: 'text',
-            text: '🛍️ สิ่งที่คุณทำได้',
-            weight: 'bold',
-            size: 'lg',
-          },
-          {
-            type: 'box',
-            layout: 'vertical',
-            margin: 'md',
-            contents: [
-              {
-                type: 'box',
-                layout: 'horizontal',
-                contents: [
-                  { type: 'text', text: '📦', flex: 1 },
-                  { type: 'text', text: 'ติดตามคำสั่งซื้อ', flex: 5, size: 'sm' },
-                ],
-                margin: 'sm',
-              },
-              {
-                type: 'box',
-                layout: 'horizontal',
-                contents: [
-                  { type: 'text', text: '🔍', flex: 1 },
-                  { type: 'text', text: 'ค้นหาสินค้า', flex: 5, size: 'sm' },
-                ],
-                margin: 'sm',
-              },
-              {
-                type: 'box',
-                layout: 'horizontal',
-                contents: [
-                  { type: 'text', text: '⭐', flex: 1 },
-                  { type: 'text', text: 'สะสมคะแนนและแลกของรางวัล', flex: 5, size: 'sm' },
-                ],
-                margin: 'sm',
-              },
-              {
-                type: 'box',
-                layout: 'horizontal',
-                contents: [
-                  { type: 'text', text: '💬', flex: 1 },
-                  { type: 'text', text: 'พูดคุยกับเจ้าหน้าที่', flex: 5, size: 'sm' },
-                ],
-                margin: 'sm',
-              },
-            ],
-          },
-        ],
-      },
-      footer: {
-        type: 'box',
-        layout: 'vertical',
-        contents: [{
-          type: 'button',
-          action: {
-            type: 'uri',
-            label: '🏪 เข้าสู่ร้านค้า',
-            uri: `${config.liff.url}/shop`,
-          },
-          style: 'primary',
-          color: '#00B900',
-        }],
       },
     };
   }
-
-  async handlePostback(event) {
-    const { data } = event.postback;
-    const params = new URLSearchParams(data);
-    const action = params.get('action');
-    const userId = event.source.userId;
-
-    switch (action) {
-      case 'confirm_order':
-        return this.handleOrderConfirmation(userId, params, event.replyToken);
-      case 'cancel_order':
-        return this.handleOrderCancellation(userId, params, event.replyToken);
-      case 'rate_service':
-        return this.handleServiceRating(userId, params, event.replyToken);
-      default:
-        console.log(`Unknown postback action: ${action}`);
-    }
-  }
-
-  async handleOrderConfirmation(userId, params, replyToken) {
-    const orderId = params.get('orderId');
-    
-    try {
-      const order = await this.orderService.confirmOrder(orderId, userId);
-      
-      await this.client.replyMessage(replyToken, {
-        type: 'text',
-        text: `✅ ยืนยันคำสั่งซื้อ #${orderId} สำเร็จ!\nขอบคุณที่ช้อปปิ้งกับเรา 🛍️`,
-      });
-      
-      // Add loyalty points
-      await this.loyaltyService.addPoints(userId, order.total * 0.01, 'purchase');
-      
-    } catch (error) {
-      await this.client.replyMessage(replyToken, {
-        type: 'text',
-        text: 'ขออภัย ไม่สามารถยืนยันคำสั่งซื้อได้ กรุณาลองใหม่อีกครั้ง',
-      });
-    }
-  }
-}
-
-module.exports = SmartCommerceBot;
-```
-
-### 15.4 Infrastructure Setup (Terraform)
-
-```hcl
-# infrastructure/main.tf
-terraform {
-  required_version = ">= 1.5"
-  
-  required_providers {
-    google = {
-      source  = "hashicorp/google"
-      version = "~> 5.0"
-    }
-  }
-  
-  backend "gcs" {
-    bucket = "line-bot-terraform-state"
-    prefix = "production"
-  }
-}
-
-provider "google" {
-  project = var.project_id
-  region  = var.region
-}
-
-# VPC Network
-resource "google_compute_network" "vpc" {
-  name                    = "line-bot-vpc"
-  auto_create_subnetworks = false
-}
-
-resource "google_compute_subnetwork" "subnet" {
-  name          = "line-bot-subnet"
-  ip_cidr_range = "10.0.0.0/24"
-  network       = google_compute_network.vpc.id
-  region        = var.region
-  
-  secondary_ip_range {
-    range_name    = "pods"
-    ip_cidr_range = "10.1.0.0/16"
-  }
-  
-  secondary_ip_range {
-    range_name    = "services"
-    ip_cidr_range = "10.2.0.0/20"
-  }
-}
-
-# GKE Cluster
-resource "google_container_cluster" "primary" {
-  name     = "line-bot-cluster"
-  location = var.region
-  
-  network    = google_compute_network.vpc.name
-  subnetwork = google_compute_subnetwork.subnet.name
-  
-  # Enable Workload Identity
-  workload_identity_config {
-    workload_pool = "${var.project_id}.svc.id.goog"
-  }
-  
-  # Enable autopilot สำหรับ cost efficiency
-  # หรือใช้ node pools แบบ manual
-  
-  node_config {
-    workload_metadata_config {
-      mode = "GKE_METADATA"
-    }
-  }
-  
-  addons_config {
-    horizontal_pod_autoscaling {
-      disabled = false
-    }
-    http_load_balancing {
-      disabled = false
-    }
-    gce_persistent_disk_csi_driver_config {
-      enabled = true
-    }
-  }
-  
-  maintenance_policy {
-    daily_maintenance_window {
-      start_time = "03:00"  # 3am UTC = 10am TH
-    }
-  }
-}
-
-# Node Pool
-resource "google_container_node_pool" "app" {
-  name       = "app-pool"
-  cluster    = google_container_cluster.primary.id
-  node_count = 2
-  
-  autoscaling {
-    min_node_count = 1
-    max_node_count = 10
-  }
-  
-  node_config {
-    preemptible  = false  # Production: use regular nodes
-    machine_type = "n2-standard-2"
-    
-    disk_size_gb = 50
-    disk_type    = "pd-ssd"
-    
-    oauth_scopes = [
-      "https://www.googleapis.com/auth/cloud-platform",
-    ]
-    
-    labels = {
-      env  = "production"
-      app  = "line-bot"
-    }
-    
-    workload_metadata_config {
-      mode = "GKE_METADATA"
-    }
-  }
-  
-  management {
-    auto_repair  = true
-    auto_upgrade = true
-  }
-}
-
-# Cloud SQL (PostgreSQL)
-resource "google_sql_database_instance" "postgres" {
-  name             = "line-bot-postgres"
-  database_version = "POSTGRES_15"
-  region           = var.region
-  
-  deletion_protection = true  # ป้องกันการลบโดยบังเอิญ
-  
-  settings {
-    tier = "db-custom-2-7680"  # 2 vCPU, 7.5GB RAM
-    
-    backup_configuration {
-      enabled                        = true
-      start_time                     = "02:00"
-      point_in_time_recovery_enabled = true
-      transaction_log_retention_days = 7
-    }
-    
-    ip_configuration {
-      ipv4_enabled    = false
-      private_network = google_compute_network.vpc.id
-    }
-    
-    database_flags {
-      name  = "max_connections"
-      value = "200"
-    }
-    
-    availability_type = "REGIONAL"  # High availability
-    
-    maintenance_window {
-      day          = 7  # Sunday
-      hour         = 3  # 3am UTC
-      update_track = "stable"
-    }
-  }
-}
-
-# Cloud Memorystore (Redis)
-resource "google_redis_instance" "cache" {
-  name           = "line-bot-redis"
-  memory_size_gb = 2
-  region         = var.region
-  
-  authorized_network = google_compute_network.vpc.id
-  
-  redis_version  = "REDIS_7_0"
-  tier           = "STANDARD_HA"  # High availability
-  
-  maintenance_policy {
-    weekly_maintenance_window {
-      day = "SUNDAY"
-      start_time {
-        hours   = 3
-        minutes = 0
-      }
-    }
-  }
-}
-
-# Cloud Storage (Assets)
-resource "google_storage_bucket" "assets" {
-  name          = "${var.project_id}-line-bot-assets"
-  location      = var.region
-  storage_class = "STANDARD"
-  
-  uniform_bucket_level_access = true
-  
-  versioning {
-    enabled = true
-  }
-  
-  lifecycle_rule {
-    action {
-      type = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-    condition {
-      age = 30  # Move to Nearline after 30 days
-    }
-  }
-  
-  cors {
-    origin          = ["https://your-liff-domain.com"]
-    method          = ["GET", "HEAD"]
-    response_header = ["Content-Type"]
-    max_age_seconds = 3600
-  }
-}
-
-# Secret Manager
-resource "google_secret_manager_secret" "line_channel_secret" {
-  secret_id = "line-channel-secret"
-  
-  replication {
-    automatic {}
-  }
-}
-
-resource "google_secret_manager_secret" "jwt_secret" {
-  secret_id = "jwt-secret"
-  
-  replication {
-    automatic {}
-  }
-}
-
-# Monitoring
-resource "google_monitoring_alert_policy" "high_error_rate" {
-  display_name = "High Error Rate"
-  combiner     = "OR"
-  
-  conditions {
-    display_name = "Error rate > 5%"
-    
-    condition_threshold {
-      filter          = "resource.type=\"k8s_container\" AND metric.type=\"prometheus.googleapis.com/http_requests_total/counter\" AND metric.labels.status_code=~\"5..\""
-      duration        = "300s"
-      comparison      = "COMPARISON_GT"
-      threshold_value = 0.05
-      
-      aggregations {
-        alignment_period   = "60s"
-        per_series_aligner = "ALIGN_RATE"
-        cross_series_reducer = "REDUCE_MEAN"
-      }
-    }
-  }
-  
-  notification_channels = [google_monitoring_notification_channel.pagerduty.id]
 }
 ```
 
-### 15.5 CI/CD Pipeline
+### 6.6 Testing Strategy
 
-```yaml
-# .github/workflows/deploy.yml
-name: Deploy LINE Bot
+```typescript
+// tests/catalog.handler.test.ts
+import { describe, it, expect, beforeEach, jest } from '@jest/globals';
+import { CatalogHandler } from '../src/handlers/catalog.handler';
 
-on:
-  push:
-    branches:
-      - main
+describe('CatalogHandler', () => {
+  let handler: CatalogHandler;
+  let mockProductService: any;
+  let mockCartService: any;
+  let mockLineClient: any;
 
-env:
-  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  GKE_CLUSTER: line-bot-cluster
-  GKE_ZONE: asia-southeast1
-  IMAGE: gcr.io/${{ secrets.GCP_PROJECT_ID }}/line-bot
+  beforeEach(() => {
+    mockProductService = {
+      getProductsByCategory: jest.fn(),
+      getById: jest.fn(),
+    };
+    
+    mockCartService = {
+      getOrCreateCart: jest.fn(),
+      addItem: jest.fn(),
+      getCartWithItems: jest.fn(),
+    };
+    
+    mockLineClient = {
+      replyMessage: jest.fn().mockResolvedValue(undefined),
+    };
+    
+    handler = new CatalogHandler(
+      mockProductService,
+      mockCartService,
+      mockLineClient
+    );
+  });
 
-jobs:
-  test:
-    name: Run Tests
-    runs-on: ubuntu-latest
-    
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: linebot_test
-        ports:
-          - 5432:5432
-      redis:
-        image: redis:7
-        ports:
-          - 6379:6379
-    
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Setup Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '18'
-        cache: 'npm'
-    
-    - name: Install dependencies
-      run: npm ci
-    
-    - name: Run linter
-      run: npm run lint
-    
-    - name: Run type check
-      run: npm run type-check
-    
-    - name: Run unit tests
-      run: npm run test:unit
-      env:
-        DATABASE_URL: postgresql://postgres:test@localhost:5432/linebot_test
-        REDIS_URL: redis://localhost:6379
-    
-    - name: Run integration tests
-      run: npm run test:integration
-      env:
-        DATABASE_URL: postgresql://postgres:test@localhost:5432/linebot_test
-        REDIS_URL: redis://localhost:6379
-        LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN_TEST }}
-        LINE_CHANNEL_SECRET: ${{ secrets.LINE_CHANNEL_SECRET_TEST }}
-    
-    - name: Upload coverage
-      uses: codecov/codecov-action@v3
+  describe('handleCategoryBrowse', () => {
+    it('should send product carousel when products found', async () => {
+      const mockProducts = [
+        {
+          id: 'prod-1',
+          name: 'ข้าวสารหอมมะลิ',
+          price: 180,
+          unit: 'kg',
+          stockQuantity: 50,
+          images: [{ url: 'https://example.com/rice.jpg' }],
+          category: { name: 'ข้าวสาร' },
+        },
+      ];
 
-  security-scan:
-    name: Security Scan
-    runs-on: ubuntu-latest
-    needs: test
-    
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Run npm audit
-      run: npm audit --production
-    
-    - name: Run SAST scan
-      uses: github/codeql-action/analyze@v2
-      with:
-        languages: javascript
+      mockProductService.getProductsByCategory.mockResolvedValue(mockProducts);
 
-  build-and-push:
-    name: Build and Push Docker Image
-    runs-on: ubuntu-latest
-    needs: [test, security-scan]
-    
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Authenticate to Google Cloud
-      uses: google-github-actions/auth@v1
-      with:
-        credentials_json: ${{ secrets.GCP_SA_KEY }}
-    
-    - name: Configure Docker for GCR
-      run: gcloud auth configure-docker
-    
-    - name: Build Docker image
-      run: |
-        docker build \
-          --tag $IMAGE:$GITHUB_SHA \
-          --tag $IMAGE:latest \
-          --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
-          --build-arg VCS_REF=$GITHUB_SHA \
-          .
-    
-    - name: Scan Docker image
-      uses: anchore/scan-action@v3
-      with:
-        image: "$IMAGE:$GITHUB_SHA"
-        fail-build: true
-        severity-cutoff: high
-    
-    - name: Push Docker image
-      run: |
-        docker push $IMAGE:$GITHUB_SHA
-        docker push $IMAGE:latest
+      const event = createMockMessageEvent('user-123');
+      await handler.handleCategoryBrowse(event, 'cat-rice');
 
-  deploy-staging:
-    name: Deploy to Staging
-    runs-on: ubuntu-latest
-    needs: build-and-push
-    environment: staging
-    
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Authenticate to Google Cloud
-      uses: google-github-actions/auth@v1
-      with:
-        credentials_json: ${{ secrets.GCP_SA_KEY }}
-    
-    - name: Get GKE Credentials
-      uses: google-github-actions/get-gke-credentials@v1
-      with:
-        cluster_name: ${{ env.GKE_CLUSTER }}-staging
-        location: ${{ env.GKE_ZONE }}
-    
-    - name: Deploy to staging
-      run: |
-        kubectl set image deployment/line-bot \
-          line-bot=$IMAGE:$GITHUB_SHA \
-          --namespace=staging
-        kubectl rollout status deployment/line-bot \
-          --namespace=staging \
-          --timeout=300s
-    
-    - name: Run smoke tests
-      run: npm run test:smoke -- --env=staging
+      expect(mockLineClient.replyMessage).toHaveBeenCalledWith(
+        event.replyToken,
+        expect.arrayContaining([
+          expect.objectContaining({ type: 'text' }),
+          expect.objectContaining({ type: 'flex' }),
+        ])
+      );
+    });
 
-  deploy-production:
-    name: Deploy to Production
-    runs-on: ubuntu-latest
-    needs: deploy-staging
-    environment: 
-      name: production
-      url: https://linebot.yourcompany.com
-    
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Authenticate to Google Cloud
-      uses: google-github-actions/auth@v1
-      with:
-        credentials_json: ${{ secrets.GCP_SA_KEY }}
-    
-    - name: Get GKE Credentials
-      uses: google-github-actions/get-gke-credentials@v1
-      with:
-        cluster_name: ${{ env.GKE_CLUSTER }}
-        location: ${{ env.GKE_ZONE }}
-    
-    - name: Deploy to production
-      run: |
-        kubectl set image deployment/line-bot \
-          line-bot=$IMAGE:$GITHUB_SHA \
-          --namespace=production
-        kubectl rollout status deployment/line-bot \
-          --namespace=production \
-          --timeout=300s
-    
-    - name: Verify deployment
-      run: |
-        # Wait for pods to be ready
-        kubectl wait --for=condition=ready pod \
-          -l app=line-bot \
-          --namespace=production \
-          --timeout=120s
-        
-        # Run smoke tests
-        npm run test:smoke -- --env=production
-    
-    - name: Notify team
-      uses: 8398a7/action-slack@v3
-      with:
-        status: ${{ job.status }}
-        text: "LINE Bot deployed to production: ${{ github.sha }}"
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-      if: always()
+    it('should send "not found" message when no products', async () => {
+      mockProductService.getProductsByCategory.mockResolvedValue([]);
+
+      const event = createMockMessageEvent('user-123');
+      await handler.handleCategoryBrowse(event, 'cat-empty');
+
+      expect(mockLineClient.replyMessage).toHaveBeenCalledWith(
+        event.replyToken,
+        expect.objectContaining({
+          type: 'text',
+          text: expect.stringContaining('ขออภัย'),
+        })
+      );
+    });
+  });
+
+  describe('handleAddToCart', () => {
+    it('should add product to cart successfully', async () => {
+      const mockProduct = {
+        id: 'prod-1',
+        name: 'ข้าวสารหอมมะลิ',
+        price: 180,
+        stockQuantity: 50,
+      };
+
+      const mockCart = {
+        id: 'cart-1',
+        items: [{ product: mockProduct, quantity: 1 }],
+      };
+
+      mockProductService.getById.mockResolvedValue(mockProduct);
+      mockCartService.getOrCreateCart.mockResolvedValue({ id: 'cart-1' });
+      mockCartService.addItem.mockResolvedValue(undefined);
+      mockCartService.getCartWithItems.mockResolvedValue(mockCart);
+
+      const event = createMockPostbackEvent('user-123');
+      await handler.handleAddToCart(event, 'prod-1');
+
+      expect(mockCartService.addItem).toHaveBeenCalledWith('cart-1', 'prod-1', 1);
+      expect(mockLineClient.replyMessage).toHaveBeenCalled();
+    });
+
+    it('should notify when product out of stock', async () => {
+      mockProductService.getById.mockResolvedValue({
+        id: 'prod-1',
+        name: 'ข้าวสารหอมมะลิ',
+        stockQuantity: 0,
+      });
+
+      const event = createMockPostbackEvent('user-123');
+      await handler.handleAddToCart(event, 'prod-1');
+
+      expect(mockCartService.addItem).not.toHaveBeenCalled();
+      expect(mockLineClient.replyMessage).toHaveBeenCalledWith(
+        event.replyToken,
+        expect.objectContaining({
+          text: expect.stringContaining('หมดสต๊อก'),
+        })
+      );
+    });
+  });
+});
+
+function createMockMessageEvent(userId: string): any {
+  return {
+    type: 'message',
+    replyToken: 'mock-reply-token',
+    source: { type: 'user', userId },
+    timestamp: Date.now(),
+    message: { type: 'text', text: 'test' },
+  };
+}
+
+function createMockPostbackEvent(userId: string): any {
+  return {
+    type: 'postback',
+    replyToken: 'mock-reply-token',
+    source: { type: 'user', userId },
+    timestamp: Date.now(),
+    postback: { data: 'action=test' },
+  };
+}
 ```
 
 ---
 
-## 16. Course Completion Certificate Criteria
+## 7. Course Completion Summary
 
-### 16.1 เกณฑ์การรับ Certificate
+### 7.1 สิ่งที่เรียนรู้ตลอดหลักสูตร 100 บท
 
 ```
-LINE OA Development Masterclass
-Certificate of Completion Criteria:
-═════════════════════════════════════
+บทเรียนที่ 1-20: LINE OA Fundamentals
+✅ LINE OA account setup และ dashboard
+✅ Messaging plans และ quota
+✅ Broadcast และ Auto-reply
+✅ Rich Menu และ Chat features
+✅ Analytics เบื้องต้น
 
-ข้อกำหนดพื้นฐาน:
-□ เรียนครบทั้ง 100 บท
-□ ทำแบบฝึกหัดครบทุกบท
-□ ผ่าน Final Assessment (คะแนน >= 70%)
+บทเรียนที่ 21-50: LINE Messaging API
+✅ Webhook events ทุกประเภท
+✅ Reply, Push, Multicast, Broadcast
+✅ Message types ทุกชนิด
+✅ Flex Messages (Bubble, Carousel)
+✅ LIFF (LINE Front-end Framework)
+✅ LINE Login integration
+✅ Database design และ state management
 
-Capstone Project Requirements:
-□ สร้าง LINE OA Bot ที่ production-ready
-□ มีฟีเจอร์ครบตามที่กำหนด:
-  □ Webhook handling ที่ถูกต้อง
-  □ อย่างน้อย 2 message types
-  □ Error handling ครบถ้วน
-  □ Database integration
-  □ Basic analytics
-  □ Deployment บน cloud
-  □ Monitoring setup
-  □ Documentation ครบถ้วน
+บทเรียนที่ 51-70: Advanced Features
+✅ Rich Menu API
+✅ Narrowcast และ Audience
+✅ LINE Pay integration
+✅ AI/NLP integration
+✅ Real-world bots (E-commerce, Booking, Food Order)
 
-Code Quality Requirements:
-□ Test coverage >= 70%
-□ ไม่มี critical security issues
-□ Lint errors = 0
-□ Performance: P95 < 500ms
+บทเรียนที่ 71-90: Enterprise Architecture
+✅ Microservices
+✅ Queue management
+✅ Docker และ Kubernetes
+✅ CI/CD pipeline
+✅ Multi-region deployment
+✅ Security hardening
+✅ PDPA compliance
 
-Documentation Requirements:
-□ README ครบถ้วน
-□ API documentation
-□ Architecture diagram
-
-Certificate Levels:
-🥉 Bronze: เรียนครบ 50 บท + basic project
-🥈 Silver: เรียนครบ 80 บท + intermediate project
-🥇 Gold: เรียนครบ 100 บท + capstone project ผ่านทุกข้อ
-🏆 Platinum: Gold + peer review + mentor contribution
+บทเรียนที่ 91-100: Advanced Topics
+✅ API Gateway
+✅ Event-Driven Architecture (Kafka)
+✅ GraphQL
+✅ WebSocket real-time
+✅ Advanced Analytics
+✅ Cost Optimization
+✅ Team Process
+✅ Production Best Practices
 ```
 
-### 16.2 Final Assessment
+### 7.2 Career Paths หลังจบหลักสูตร
 
-```javascript
-// final-assessment/questions.js
-const FINAL_ASSESSMENT_QUESTIONS = [
-  {
-    id: 1,
-    topic: 'LINE API Fundamentals',
-    question: 'Reply Token ใน LINE API มีอายุเท่าไหร่?',
-    options: ['5 วินาที', '30 วินาที', '1 นาที', '5 นาที'],
-    correct: 1,
-    explanation: 'Reply Token มีอายุ 30 วินาที หลังจากนั้น token จะหมดอายุ',
-  },
-  {
-    id: 2,
-    topic: 'Security',
-    question: 'วิธีใดถูกต้องในการ verify LINE webhook?',
-    options: [
-      'ตรวจสอบ IP address ของ LINE',
-      'ตรวจสอบ x-line-signature header',
-      'ตรวจสอบ User-Agent header',
-      'ไม่จำเป็นต้อง verify',
-    ],
-    correct: 1,
-    explanation: 'ควรตรวจสอบ HMAC-SHA256 signature ใน x-line-signature header',
-  },
-  {
-    id: 3,
-    topic: 'Performance',
-    question: 'วิธีใดเหมาะสมที่สุดสำหรับการส่ง message เดิมไปยัง users หลายพัน?',
-    options: [
-      'Push message ทีละ user',
-      'Broadcast ไปยังทุกคน',
-      'Multicast ไปยัง user IDs',
-      'Reply message',
-    ],
-    correct: 2,
-    explanation: 'Multicast เหมาะสำหรับส่งไปยัง specific users หลายคนพร้อมกัน (สูงสุด 500 คนต่อครั้ง)',
-  },
-  {
-    id: 4,
-    topic: 'Architecture',
-    question: 'ทำไมต้อง respond HTTP 200 OK ไปยัง LINE webhook ทันทีก่อน process event?',
-    options: [
-      'เพื่อประหยัด bandwidth',
-      'เพื่อป้องกัน LINE retry ที่ทำให้เกิด duplicate events',
-      'เพื่อ compliance กับ LINE policy',
-      'ไม่จำเป็น สามารถ respond ทีหลังได้',
-    ],
-    correct: 1,
-    explanation: 'LINE จะ retry webhook ถ้าไม่ได้รับ 2xx response ใน 30 วินาที การ respond ทันทีแล้วค่อย process async จะป้องกัน duplicate processing',
-  },
-  {
-    id: 5,
-    topic: 'Cost Optimization',
-    question: 'Message ประเภทใดใน LINE ที่ไม่นับ quota?',
-    options: [
-      'Push message',
-      'Multicast message',
-      'Reply message',
-      'Broadcast message',
-    ],
-    correct: 2,
-    explanation: 'Reply message ไม่นับ quota เพราะเป็นการตอบสนองต่อ user message',
-  },
-  // ... more questions
-];
+```
+Career Options:
 
-module.exports = FINAL_ASSESSMENT_QUESTIONS;
+1. LINE Bot Developer (Junior/Mid)
+   ทักษะหลัก: Node.js, LINE SDK, LIFF, PostgreSQL
+   เงินเดือนเฉลี่ย (Thailand): ฿30,000-60,000/month
+   
+   Next Steps:
+   - Build portfolio (2-3 real bots)
+   - LINE Certified Developer exam
+   - Contribute to open source
+
+2. Full-Stack Developer (with LINE expertise)
+   ทักษะหลัก: React, Node.js, LINE APIs, GraphQL
+   เงินเดือนเฉลี่ย: ฿50,000-100,000/month
+   
+   Next Steps:
+   - เรียน React/Vue เพิ่มเติม
+   - GraphQL certification
+   - Build LIFF apps
+
+3. Solutions Architect (LINE Ecosystem)
+   ทักษะหลัก: Architecture, AWS/GCP, Kafka, Security
+   เงินเดือนเฉลี่ย: ฿100,000-200,000/month
+   
+   Next Steps:
+   - AWS/GCP certifications
+   - System design practice
+   - Lead architecture reviews
+
+4. Tech Lead / Engineering Manager
+   ทักษะหลัก: Technical + People management
+   เงินเดือนเฉลี่ย: ฿150,000-300,000/month
+   
+   Next Steps:
+   - Mentor junior developers
+   - Lead team projects
+   - Management skills
+
+5. Entrepreneur / Consultant
+   ทักษะ: All of the above + Business
+   
+   Next Steps:
+   - Build your own LINE Bot SaaS
+   - Offer LINE Bot consulting services
+   - Create LINE Bot courses/content
 ```
 
 ---
 
-## 17. What's Next: Advanced Topics Roadmap
+## 8. Next Steps หลังจบหลักสูตร
 
-### 17.1 Advanced Topics สำหรับหลังจบหลักสูตร
-
-```
-Advanced LINE OA Development Roadmap:
-════════════════════════════════════════
-
-Level 1: Advanced Integrations (1-3 เดือน)
-┌─────────────────────────────────────────────┐
-│ A1. LINE CLOVA AI Integration               │
-│   - Speech recognition                      │
-│   - Natural language understanding          │
-│   - Thai language optimization              │
-│                                             │
-│ A2. Computer Vision Integration             │
-│   - Product recognition                     │
-│   - Document scanning (OCR)                 │
-│   - Face recognition (PDPA compliant)       │
-│                                             │
-│ A3. Advanced Payment Systems                │
-│   - PromptPay integration                   │
-│   - Credit card via LINE Pay               │
-│   - Subscription billing                    │
-│                                             │
-│ A4. IoT Integration                         │
-│   - Smart home via LINE                     │
-│   - Industrial IoT alerts                   │
-│   - Location-based triggers                 │
-└─────────────────────────────────────────────┘
-
-Level 2: Platform Engineering (3-6 เดือน)
-┌─────────────────────────────────────────────┐
-│ B1. Multi-tenant LINE Bot Platform          │
-│   - รองรับหลาย LINE OA บน platform เดียว    │
-│   - Tenant isolation                         │
-│   - Custom branding per tenant              │
-│                                             │
-│ B2. No-code Bot Builder                     │
-│   - Visual flow editor                      │
-│   - Template marketplace                    │
-│   - Analytics for non-technical users       │
-│                                             │
-│ B3. LINE OA as a Service                    │
-│   - SaaS business model                     │
-│   - API-first architecture                  │
-│   - White-labeling                          │
-└─────────────────────────────────────────────┘
-
-Level 3: Emerging Technologies (6-12 เดือน)
-┌─────────────────────────────────────────────┐
-│ C1. Generative AI Integration               │
-│   - GPT-4 / Claude for conversations        │
-│   - RAG (Retrieval-Augmented Generation)    │
-│   - AI-generated Flex Messages              │
-│   - Multi-modal AI (image + text)           │
-│                                             │
-│ C2. Blockchain Integration                  │
-│   - NFT receipts on LINE                    │
-│   - Tokenized loyalty points                │
-│   - Smart contract automation              │
-│                                             │
-│ C3. AR/VR Experiences in LIFF              │
-│   - WebXR in LIFF browser                   │
-│   - Virtual try-on for fashion              │
-│   - 3D product visualization               │
-│                                             │
-│ C4. Advanced Analytics                      │
-│   - ML-powered personalization             │
-│   - Real-time recommendation engine        │
-│   - Predictive inventory management         │
-└─────────────────────────────────────────────┘
-```
-
-### 17.2 Career Path for LINE Bot Developers
+### 8.1 สิ่งที่ควรทำทันที
 
 ```
-Career Progression:
-════════════════════
+Week 1-2: สร้าง Portfolio Project
+□ เลือก idea ที่คุณสนใจจริงๆ
+□ วางแผน architecture
+□ เริ่ม development
+□ Deploy ไปยัง production (ฟรี: Railway, Render, Vercel)
 
-Junior LINE Bot Developer (0-1 ปี)
-  ├── Skills: Basic webhook, message types, LIFF
-  ├── Projects: Simple chatbots, info bots
-  ├── Salary: ฿25,000 - ฿40,000/เดือน
-  └── Next: Mid-level after 1-2 ปี
+Week 3-4: LINE Certification
+□ สมัคร LINE Certified Developer Program
+□ ศึกษา study materials
+□ ทำ practice exams
+□ เข้าสอบ
 
-Mid-level Bot Developer (1-3 ปี)
-  ├── Skills: Full-stack LINE development
-  ├── Projects: E-commerce bots, CRM integration
-  ├── Salary: ฿40,000 - ฿70,000/เดือน
-  └── Next: Senior or specialize
+Month 2-3: Community Engagement
+□ Join LINE Developer Community Thailand (Facebook Group)
+□ เข้าร่วม LINE Developer Meetup
+□ Share งานใน LinkedIn
+□ Write blog post เกี่ยวกับสิ่งที่เรียนรู้
 
-Senior Bot Developer (3-5 ปี)
-  ├── Skills: Architecture, scaling, AI integration
-  ├── Projects: Enterprise solutions, platforms
-  ├── Salary: ฿70,000 - ฿120,000/เดือน
-  └── Next: Lead, Architect, or Consultant
-
-Lead/Architect (5+ ปี)
-  ├── Skills: Platform engineering, team leadership
-  ├── Scope: Organization-wide LINE strategy
-  └── Salary: ฿120,000+/เดือน
-
-LINE OA Consultant/Freelancer
-  ├── Per project: ฿50,000 - ฿500,000+
-  ├── Monthly retainer: ฿30,000 - ฿100,000+
-  └── Skills: Business + Technical combination
+Month 3-6: Advanced Learning
+□ เลือก specialization (AI, Analytics, Enterprise)
+□ เรียนทักษะเพิ่มเติมที่เกี่ยวข้อง
+□ Build 2nd project ที่ complex กว่า
+□ Contribute to LINE SDK open source
 ```
 
-### 17.3 Community Resources
+### 8.2 Resources ที่แนะนำ
 
 ```
-Community & Resources:
-═══════════════════════
-
 Official Resources:
-├── LINE Developers: https://developers.line.biz
-├── LINE Developer Community: https://community.line.me
-├── LINE API Blog: https://engineering.linecorp.com
-├── GitHub: https://github.com/line
-└── YouTube: LINE Developer channel
+- LINE Developers: developers.line.biz
+- LINE API Documentation: developers.line.biz/en/reference/messaging-api/
+- LINE LIFF: developers.line.biz/en/docs/liff/overview/
+- LINE YouTube: youtube.com/@LINEDevelopersTH
+
+Communities:
+- LINE Developers Thailand (Facebook Group)
+- LINE Developers Slack
+- GitHub: line/line-bot-sdk-nodejs
+- GitHub: line/line-bot-sdk-python
+
+Learning Platforms:
+- LINE Developer Certificate Program
+- Udemy (Node.js, TypeScript courses)
+- freeCodeCamp
+- The Odin Project
+
+Books:
+- "Designing Data-Intensive Applications" - Martin Kleppmann
+- "Clean Architecture" - Robert C. Martin
+- "Site Reliability Engineering" - Google
+- "The Pragmatic Programmer" - Hunt & Thomas
 
 Thai Communities:
-├── LINE Developer Thailand Facebook Group
-├── JavaScript Thailand (TH)
-├── Bkk.js Meetup
-└── DevMountain.io
-
-Online Learning:
-├── LINE API documentation (official)
-├── LINE Developer Certification
-├── Coursera: Cloud courses
-└── freeCodeCamp (Web development)
-
-Tools:
-├── LINE API Explorer: เทสต์ API
-├── Flex Message Simulator: ออกแบบ messages
-├── LIFF Playground
-└── LINE Bot Designer
-
-Important Updates to Follow:
-├── LINE Developers Blog สำหรับ API updates
-├── LINE API Changelog
-├── GitHub releases ของ @line/bot-sdk
-└── LIFF release notes
+- Creatorsgarten (Bangkok tech meetups)
+- Bkk.js (JavaScript community)
+- CloudNative Thailand
+- DevBangkok
 ```
 
 ---
 
-## บทสรุป: จบหลักสูตร LINE OA Development Masterclass
-
-### 🎓 สิ่งที่คุณได้เรียนรู้ใน 100 บท
+## 9. Final Words
 
 ```
-Course Summary:
-════════════════
+ยินดีด้วย! 🎉
 
-บท 1-20: Foundation
-  ├── LINE OA Basics
-  ├── Account Setup
-  ├── Basic Features (Rich Menu, Auto Reply)
-  └── Analytics Fundamentals
+คุณได้เรียนรู้ครบทุกด้านของ LINE OA Development ตั้งแต่:
+- การตั้งค่า LINE OA เบื้องต้น
+- การพัฒนา LINE Bot ด้วย Node.js และ Python
+- การสร้าง LIFF applications ด้วย React
+- การออกแบบ architecture ระดับ Enterprise
+- การจัดการ team และ process
 
-บท 21-40: Development Basics
-  ├── Webhook Setup
-  ├── Message SDK
-  ├── Message Types ทั้งหมด
-  └── LIFF Introduction
+แต่การเรียนรู้ไม่ได้จบแค่นี้
 
-บท 41-60: Advanced Development
-  ├── LINE Login
-  ├── LINE Pay
-  ├── Advanced LIFF
-  └── Chatbot NLP
+เทคโนโลยีเปลี่ยนแปลงอยู่เสมอ LINE ออก features ใหม่ทุกปี
+JavaScript ecosystem พัฒนาอย่างต่อเนื่อง Cloud platforms
+เพิ่ม capabilities ใหม่ทุกเดือน
 
-บท 61-80: Architecture
-  ├── Microservices
-  ├── Scaling
-  ├── Security
-  └── Performance
+สิ่งที่สำคัญที่สุดคือ:
+1. Keep learning - อย่าหยุดเรียนรู้
+2. Build things - ทักษะมาจากการลงมือทำ
+3. Share knowledge - สิ่งที่คุณรู้อาจเปลี่ยนชีวิตคนอื่น
+4. Be curious - ตั้งคำถามและหาคำตอบ
+5. Have fun - สนุกกับสิ่งที่ทำ
 
-บท 81-95: Production
-  ├── Testing Strategies
-  ├── CI/CD
-  ├── Monitoring
-  └── AI Integration
+LINE Bot ไม่ใช่แค่ technology มันคือ bridge ระหว่าง
+ธุรกิจกับผู้ใช้ คุณมีพลังในการสร้างประสบการณ์ที่ดี
+ให้กับผู้ใช้นับล้านคนในประเทศไทย
 
-บท 96-100: Expert Level
-  ├── WebSocket & Real-time (บท 96)
-  ├── Advanced Analytics & BI (บท 97)
-  ├── Cost Optimization (บท 98)
-  ├── Team Process (บท 99)
-  └── Production Best Practices (บท 100)
-```
+ขอให้โชคดีในการสร้าง LINE Bot ที่ยอดเยี่ยม! 🚀
 
-### 🏆 ยินดีด้วย! คุณสำเร็จหลักสูตร
-
-การเรียนรู้ 100 บทนี้ทำให้คุณมีความรู้ครอบคลุมทุกด้านของ LINE OA Development ตั้งแต่พื้นฐานจนถึงระดับ Expert
-
-ความรู้ที่คุณได้รับ:
-- เข้าใจ LINE Platform ทุกส่วน
-- พัฒนา production-grade LINE Bot ได้
-- บริหารจัดการระบบขนาดใหญ่ได้
-- วิเคราะห์ข้อมูลและปรับปรุง ROI ได้
-- บริหารทีม LINE Bot Development ได้
-
-สิ่งสำคัญที่ต้องจำ:
-> "Technology changes, but the fundamentals remain the same.
->  Always focus on delivering value to your users." 
-
----
-
-*🎓 LINE OA Development Masterclass - บทที่ 100 จาก 100*
-*Version 2.0 | สร้างด้วย ❤️ สำหรับนักพัฒนาไทย*
+- Team LINE OA Course
 ```
 
 ---
 
-## สรุปบทที่ 100
+## Final Checklist: Pre-Launch สำหรับ Production
 
-ในบทสุดท้ายนี้เราได้เรียนรู้:
+```markdown
+# Final Pre-Launch Checklist
 
-1. **Production Best Practices** - Framework สำหรับระบบ production
-2. **Pre-launch Checklist** - 100+ รายการที่ต้องตรวจสอบ
-3. **Go-live Procedures** - วิธีการ launch ที่ปลอดภัย
-4. **Post-launch Monitoring** - การติดตามหลัง launch
-5. **Performance Optimization** - Checklist และ load testing
-6. **Security Hardening** - Scripts และ audit automation
-7. **Disaster Recovery** - Plan และ procedures
-8. **Business Continuity** - BCP สำหรับ LINE OA
-9. **Scaling** - Playbook สำหรับ traffic สูง
-10. **Maintenance** - Procedures และ scheduling
-11. **Deprecation** - API deprecation policy
-12. **Knowledge Transfer** - Checklist ครบถ้วน
-13. **Documentation** - Requirements ทั้งหมด
-14. **PRR Template** - Production Readiness Review
-15. **Capstone Project** - Complete LINE Bot system
-16. **Certificate Criteria** - เกณฑ์การรับ certificate
-17. **Advanced Roadmap** - สิ่งที่ต้องเรียนรู้ต่อ
+## 1. Code Quality
+□ Code review completed by 2+ engineers
+□ All tests passing (unit, integration, e2e)
+□ Code coverage > 80%
+□ No critical vulnerabilities (npm audit, snyk)
+□ Dependencies up to date
+□ No console.logs in production code
 
-### Final Checklist - Production Readiness
+## 2. Security
+□ LINE signature validation working
+□ HTTPS certificates valid
+□ Environment variables in secrets manager
+□ No sensitive data in logs
+□ PDPA compliance verified
+□ Penetration test completed (for large systems)
 
-- [ ] ผ่าน Security Review
-- [ ] ผ่าน Performance Testing (P95 < 500ms)
-- [ ] ผ่าน Load Testing (peak traffic)
-- [ ] Monitoring และ alerting ทำงาน
-- [ ] On-call rotation ตั้งค่าแล้ว
-- [ ] Runbooks ครบถ้วน
-- [ ] DR procedures tested
-- [ ] Documentation ครบถ้วน
-- [ ] Team trained
-- [ ] Stakeholder sign-off ได้แล้ว
+## 3. Performance
+□ Load test passed (2x expected traffic)
+□ P95 latency < 500ms for webhooks
+□ LIFF page loads < 3 seconds on 4G
+□ Database queries optimized
+□ Caching implemented
 
-**🎊 ขอแสดงความยินดีที่เรียนจบหลักสูตร LINE OA Development Masterclass! 🎊**
+## 4. Monitoring
+□ Health checks configured
+□ Alerting rules set up
+□ Dashboard accessible
+□ Log aggregation working
+□ Error tracking (Sentry) setup
 
-*"The journey of a thousand miles begins with a single step." - Lao Tzu*
+## 5. Operations
+□ Runbooks written
+□ On-call rotation configured
+□ Escalation paths documented
+□ Rollback plan ready
+□ Backup/restore tested
 
-*ในโลกของ Technology คุณเพิ่งสร้าง foundation ที่แข็งแกร่ง ขอให้ใช้ความรู้นี้สร้างสิ่งที่ยิ่งใหญ่!*
+## 6. Business
+□ LINE OA profile complete
+□ Privacy policy updated
+□ Terms of service updated
+□ Welcome message tested
+□ Rich Menu deployed
+□ Customer support process ready
+
+## 7. Team
+□ All team members briefed
+□ Emergency contacts list ready
+□ Stakeholders notified
+□ Launch communication plan ready
+
+Sign-off Required:
+□ Tech Lead: ________________
+□ QA Lead: ________________
+□ Security: ________________
+□ Product Manager: ________________
+□ Engineering Manager: ________________
+
+Launch Date: ________________
+Launch Time: ________________
+
+🚀 ขอให้การ launch ประสบความสำเร็จ!
+```
+
+---
+
+*ขอบคุณที่เรียนหลักสูตร LINE OA Development ครบ 100 บท ไม่ว่าคุณจะนำความรู้นี้ไปใช้ในอาชีพ สร้างธุรกิจ หรือช่วยเหลือผู้อื่น ขอให้ประสบความสำเร็จในทุกเส้นทาง 🙏*
